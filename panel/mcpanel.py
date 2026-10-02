@@ -5734,6 +5734,19 @@ h1 {
     box-shadow: none;
 }
 
+#serverNav:not([hidden]) {
+    animation: fade .3s ease both;
+}
+
+#serverNav .tab-btn {
+    transition: background-color .2s ease, color .2s ease, box-shadow .2s ease;
+}
+
+#modsTabLabel {
+    display: inline-block;
+    min-width: 3.4em;
+}
+
 /* ---------- Animaciones ---------- */
 
 @keyframes rise {
@@ -10080,6 +10093,9 @@ function applyManageUI() {
     const type = info ? info.type : "";
     modsTab.hidden = !manage;
     $("modsTabLabel").textContent = type === "PAPER" ? t("mods.tabPlugins") : t("mods.tab");
+
+    // Sin permiso solo existiria Panel: no se muestra ninguna pestana
+    $("serverNav").hidden = !(manage && info && currentView === "server");
     $("motdEdit").hidden = !manage;
 
     $("stop").hidden = !manage;
@@ -12622,6 +12638,7 @@ function showView(name) {
 
     $("serverNav").hidden = true;
     $("homeBtn").hidden = name === "home";
+    renderAccountArea();
     $("homeBtn").classList.toggle("active", false);
     $("appSubtitle").textContent = t("nav." + (name === "signup" || name === "setup" ? name : name));
 
@@ -12681,15 +12698,18 @@ async function enterServer(id, tab) {
         canManageCurrent = false;
         currentServerInfo = null;
         resetServerCaches();
+
+        // La barra se muestra cuando se sabe el tipo y los permisos
+        $("serverNav").hidden = true;
     }
 
     ["view-home", "view-auth", "view-account", "view-admin"].forEach(function(view) {
         $(view).hidden = true;
     });
 
-    $("serverNav").hidden = false;
-    $("homeBtn").hidden = false;
     currentView = "server";
+    $("homeBtn").hidden = !loggedIn();
+    renderAccountArea();
 
     await update();
 
@@ -12719,7 +12739,8 @@ function renderAccountArea() {
         login.onclick = function() { go("#/login"); };
         box.append(login);
 
-        if (authState && authState.signup) {
+        // Dentro de un servidor el invitado solo ve el boton para entrar
+        if (authState && authState.signup && currentView !== "server") {
             const signup = el("button", "btn btn-start btn-small", t("auth.signup"));
             signup.onclick = function() { go("#/signup"); };
             box.append(signup);
