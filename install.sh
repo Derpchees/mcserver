@@ -1,7 +1,7 @@
 #!/bin/bash
 #
-# Minecraft Server Panel - instalador
-# https://github.com/Derpchees/minecraft-server-panel
+# MCServer by Derpchees - instalador
+# https://github.com/Derpchees/mcserver
 #
 # Uso:
 #   sudo ./install.sh                     instalacion interactiva
@@ -13,7 +13,7 @@
 set -euo pipefail
 
 VERSION="1.0.0"
-REPO="Derpchees/minecraft-server-panel"
+REPO="Derpchees/mcserver"
 INSTALL_DIR="/opt/mcpanel"
 CONFIG_DIR="/etc/mcpanel"
 CONFIG="$CONFIG_DIR/config.env"
@@ -46,8 +46,8 @@ done
 
 declare -A EN ES
 
-EN[title]="Minecraft Server Panel $VERSION"
-ES[title]="Minecraft Server Panel $VERSION"
+EN[title]="MCServer by Derpchees $VERSION"
+ES[title]="MCServer by Derpchees $VERSION"
 EN[need_root]="Run the installer with sudo."
 ES[need_root]="Ejecuta el instalador con sudo."
 EN[bad_os]="This installer supports Debian and Ubuntu (apt). Detected:"
@@ -548,7 +548,7 @@ folder_under() {
 
 if [ "$INTERACTIVE" -eq 1 ]; then
 
-    UI_LANG=$(whiptail --title "Minecraft Server Panel $VERSION" --default-item "$UI_LANG" \
+    UI_LANG=$(whiptail --title "MCServer by Derpchees $VERSION" --default-item "$UI_LANG" \
         --menu "Language / Idioma" 12 60 2 en "English" es "Español" 3>&1 1>&2 2>&3) || cancel
 
     ui_msg "$(t welcome)"
@@ -740,7 +740,7 @@ mkdir -p "$DATA_DIR" "$BACKUP_DIR" /var/lib/mcpanel /var/log/mcpanel
 chown "$MC_UID:$MC_GID" "$DATA_DIR" "$BACKUP_DIR"
 
 {
-    echo "# Minecraft Server Panel - generado por install.sh $VERSION el $(date '+%Y-%m-%d %H:%M')"
+    echo "# MCServer by Derpchees - generado por install.sh $VERSION el $(date '+%Y-%m-%d %H:%M')"
     echo "# Despues de editarlo: sudo systemctl restart mcpanel-web mcpanel-proxy mcpanel-autostop"
     write_config_value SERVER_NAME "$SERVER_NAME"
     write_config_value LANG_DEFAULT "$UI_LANG"

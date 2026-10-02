@@ -1,5 +1,5 @@
 [Unit]
-Description=Minecraft Server Panel backup (%i)
+Description=MCServer by Derpchees backup (%i)
 After=docker.service
 
 [Service]

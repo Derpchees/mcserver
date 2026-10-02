@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 #
-# Minecraft Server Panel
-# https://github.com/Derpchees/minecraft-server-panel
+# MCServer by Derpchees
+# https://github.com/Derpchees/mcserver
 #
 # Panel web para administrar un servidor de Minecraft en Docker
 # (itzg/minecraft-server). Toda la configuracion vive en
@@ -3800,6 +3800,33 @@ h1 {
     color: var(--text);
 }
 
+/* ---------- Pie de pagina ---------- */
+
+.app-footer {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 6px 16px 30px;
+    color: var(--dim);
+    font-size: 12px;
+}
+
+.app-footer-brand {
+    font-weight: 700;
+    color: var(--muted);
+}
+
+.app-footer a {
+    color: var(--muted);
+    text-decoration: none;
+}
+
+.app-footer a:hover {
+    color: var(--green);
+}
+
 /* ---------- Animaciones ---------- */
 
 @keyframes rise {
@@ -5231,6 +5258,15 @@ autocomplete="current-password"
 </section>
 
 </div>
+
+
+<footer class="app-footer">
+<span class="app-footer-brand">MCServer by Derpchees</span>
+<span class="sep">·</span>
+<span>v__VERSION__</span>
+<span class="sep">·</span>
+<a href="https://github.com/Derpchees/mcserver" target="_blank" rel="noopener">GitHub</a>
+</footer>
 
 
 <div id="toast" class="toast">
@@ -10268,12 +10304,19 @@ class Handler(BaseHTTPRequestHandler):
         pass
 
 
+try:
+    with open(os.path.join(INSTALL_DIR, "VERSION"), "r") as f:
+        APP_VERSION = f.read().strip() or "dev"
+except Exception:
+    APP_VERSION = "dev"
+
 # Valores de la instalacion insertados en la pagina una sola vez
 PAGE = (
     HTML
     .replace("__SERVER_NAME__", html.escape(SERVER_NAME))
     .replace("__PUBLIC_ADDRESS__", html.escape(PUBLIC_ADDRESS))
     .replace("__DEFAULT_LANG__", "es" if DEFAULT_LANG == "es" else "en")
+    .replace("__VERSION__", html.escape(APP_VERSION))
 ).encode("utf-8")
 
 threading.Thread(target=stats_loop, daemon=True).start()

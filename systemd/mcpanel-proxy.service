@@ -1,5 +1,5 @@
 [Unit]
-Description=Minecraft Server Panel (on-demand game proxy)
+Description=MCServer by Derpchees (on-demand game proxy)
 After=network-online.target docker.service
 Wants=network-online.target
 Requires=docker.service

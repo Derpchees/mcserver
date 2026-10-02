@@ -1,4 +1,4 @@
-# Minecraft Server Panel
+# MCServer by Derpchees
 
 [English](README.md) · **Español**
 
@@ -30,15 +30,15 @@ El servidor de Minecraft corre en la conocida imagen [`itzg/minecraft-server`](h
 ## Instalación
 
 ```bash
-git clone https://github.com/Derpchees/minecraft-server-panel.git
-cd minecraft-server-panel
+git clone https://github.com/Derpchees/mcserver.git
+cd mcserver
 sudo ./install.sh
 ```
 
 O en una línea, sin clonar:
 
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/Derpchees/minecraft-server-panel/main/install.sh)
+bash <(curl -fsSL https://raw.githubusercontent.com/Derpchees/mcserver/main/install.sh)
 ```
 
 El instalador pregunta, en inglés o español:

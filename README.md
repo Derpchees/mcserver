@@ -1,4 +1,4 @@
-# Minecraft Server Panel
+# MCServer by Derpchees
 
 **English** · [Español](README.es.md)
 
@@ -30,15 +30,15 @@ The Minecraft server itself runs in the well-known [`itzg/minecraft-server`](htt
 ## Install
 
 ```bash
-git clone https://github.com/Derpchees/minecraft-server-panel.git
-cd minecraft-server-panel
+git clone https://github.com/Derpchees/mcserver.git
+cd mcserver
 sudo ./install.sh
 ```
 
 Or in one line, without cloning:
 
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/Derpchees/minecraft-server-panel/main/install.sh)
+bash <(curl -fsSL https://raw.githubusercontent.com/Derpchees/mcserver/main/install.sh)
 ```
 
 The installer asks, in English or Spanish:

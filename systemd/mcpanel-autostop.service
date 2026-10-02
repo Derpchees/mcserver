@@ -1,5 +1,5 @@
 [Unit]
-Description=Minecraft Server Panel (automatic shutdown when empty)
+Description=MCServer by Derpchees (automatic shutdown when empty)
 After=docker.service
 Requires=docker.service
 

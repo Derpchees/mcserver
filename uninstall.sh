@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# Minecraft Server Panel - desinstalador
+# MCServer by Derpchees - desinstalador
 #
 #   sudo ./uninstall.sh                     pregunta antes de borrar
 #   sudo ./uninstall.sh --yes               sin preguntas (conserva mundo y respaldos)

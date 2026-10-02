@@ -1,5 +1,5 @@
 [Unit]
-Description=Minecraft Server Panel (web)
+Description=MCServer by Derpchees (web)
 After=network-online.target docker.service
 Wants=network-online.target
 Requires=docker.service

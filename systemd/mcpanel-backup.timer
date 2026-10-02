@@ -1,5 +1,5 @@
 [Unit]
-Description=Minecraft Server Panel scheduled backup
+Description=MCServer by Derpchees scheduled backup
 
 [Timer]
 # install.sh reemplaza @BACKUP_CALENDAR@ (hora local del servidor)
