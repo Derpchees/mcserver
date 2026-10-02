@@ -1,9 +1,0 @@
-[Unit]
-Description=MCServer by Derpchees backup (%i)
-After=docker.service
-
-[Service]
-Type=oneshot
-ExecStart=/opt/mcpanel/bin/mcpanel-backup.sh %i
-Nice=10
-IOSchedulingClass=idle

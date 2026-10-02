@@ -2,29 +2,40 @@
 
 **English** · [Español](README.es.md)
 
-A self-hosted web panel for a Minecraft Java server running in Docker, plus an interactive installer that sets everything up on a Debian or Ubuntu machine.
+A self-hosted web panel to run **several Minecraft Java servers on one machine**, each in Docker, with user accounts. It comes with an installer that sets everything up on Debian or Ubuntu.
 
-It is built for a home server shared with friends: the server starts when someone connects, shuts down when nobody is playing, and backs itself up every day.
+Each person creates an account from the login page and, in the same step, their own server: they choose the type, version, RAM and CPU. Servers start when someone connects, shut down when nobody is playing, and back themselves up every day.
 
 ## Features
 
-- **Dashboard**: server status, online players with their skins, one-click start, stop and restart, and an automatic-shutdown countdown.
-- **Console and chat**: live console with colored log levels, and the server chat with its full history. You can send commands, or chat messages that show up as `[Server]` in game. On a computer they sit side by side; on a phone they switch with tabs.
-- **Players**: everyone who has joined, with a rotating 3D skin. Kick, ban, temporary suspension (lifted automatically), private messages, game mode, teleport, operator and whitelist.
-- **Files**: browse, upload by drag and drop (folders too), download (folders as ZIP), rename, move, delete, select many at once, and edit text files such as `server.properties`.
-- **Backups**: scheduled daily backups that keep the last N, plus manual backups. While a backup runs the world is paused (`save-off`) so the copy stays consistent.
-- **Settings**: difficulty, game mode, PvP, whitelist, view distance, max players and more, without editing files by hand.
-- **Resource monitor**: CPU, memory and CPU temperature with live charts, plus per-disk storage showing what takes the space (server, backups, Docker, system) and drive temperatures.
-- **On-demand start and auto stop**: Minecraft stays off until someone connects, and stops after a configurable time with no players.
-- English and Spanish, light and dark themes, and an uninstall button.
+- **Accounts and servers**
+  - The first time you open the panel, a wizard creates the administrator.
+  - Anyone can then sign up and create their server, within limits set by the administrator. Sign-up can be turned off.
+- **Who can do what**
 
-The Minecraft server itself runs in the well-known [`itzg/minecraft-server`](https://github.com/itzg/docker-minecraft-server) image. Supported server types: **Forge, Fabric, Paper and Vanilla**.
+  | | Visitors | Server owner | Administrator |
+  |---|---|---|---|
+  | See the status of any server | Yes | Yes | Yes |
+  | Start a server | Yes | Yes | Yes |
+  | Stop, restart, console, chat, files, players, settings, backups | No | Their own | All |
+  | Users, limits, uninstall | No | No | Yes |
+
+- **Dashboard**: status, online players with their skins, an auto-shutdown countdown and a resource monitor (CPU, memory, temperatures, per-disk storage).
+- **Console and chat**: side by side on a computer, tabs on a phone. Includes the server chat history.
+- **Players**: everyone who has joined, with a 3D skin. Kick, ban, temporary suspension, private messages, game mode, teleport, operator and whitelist.
+- **Files**: drag and drop anywhere (folders too), multi-select, move, rename, ZIP download and a text editor.
+- **Backups**: daily and manual. The world is paused while copying so the backup stays consistent.
+- **Settings**: `server.properties` without editing files (difficulty, PvP, whitelist...), plus the server's resources and automation.
+- **Browser notifications**: server online, stopped or crashed; backup finished or failed; and, for the administrator, high temperature, almost-full disk or memory.
+- **Safe deleting**: deleting a server, an account or the whole system asks for a double confirmation.
+- English and Spanish, light and dark themes.
+
+Each Minecraft server runs in the [`itzg/minecraft-server`](https://github.com/itzg/docker-minecraft-server) image. Types: **Forge, Fabric, Paper and Vanilla**.
 
 ## Requirements
 
-- Debian 12+ or Ubuntu 22.04+ (64-bit). Other distributions are not supported by the installer.
-- A user with `sudo`.
-- Enough RAM for the server you want: about 2–4 GB for Vanilla or Paper, 6 GB or more for a modded server.
+- Debian 12+ or Ubuntu 22.04+ (64-bit), with `sudo`.
+- Enough RAM for the servers you plan to run at the same time: about 2–4 GB each for Vanilla or Paper, 6 GB or more each for modded servers. Stopped servers use no RAM.
 - Docker. The installer installs it if it is missing.
 
 ## Install
@@ -35,79 +46,81 @@ cd mcserver
 sudo ./install.sh
 ```
 
-Or in one line, without cloning:
+Or in one line:
 
 ```bash
 bash <(curl -fsSL https://raw.githubusercontent.com/Derpchees/mcserver/main/install.sh)
 ```
 
-The installer asks, in English or Spanish:
+The installer prepares the machine. It asks, in English or Spanish:
 
-1. **Server name**: shown in the panel and in the multiplayer list.
-2. **Where the server lives**: a list of your disks with their free space. If a partition is not mounted, it can mount it permanently for you. It never formats anything.
-3. **Where backups go**: ideally a different physical disk.
-4. **Server type and Minecraft version**: the right Java version is picked automatically.
-5. **RAM and CPU cores** for Minecraft.
-6. **Network**: all networks, or one interface such as a ZeroTier or Tailscale address. Also the game and panel ports.
-7. **Auto stop**: whether to use it, and after how many minutes without players.
-8. **Daily backups**: time of day and how many to keep.
-9. **Panel password**, and acceptance of the [Minecraft EULA](https://aka.ms/MinecraftEULA).
+1. **Where the servers live**: a list of your disks with their free space. It can mount an unmounted partition permanently. It never formats anything.
+2. **Where backups go**: ideally a different physical disk.
+3. **Network**: all networks, or one interface such as a ZeroTier or Tailscale address.
+4. **Ports**: the panel port, and the first game port. Each new server takes the next free one.
+5. **Address players use**: an IP or domain.
+6. Acceptance of the [Minecraft EULA](https://aka.ms/MinecraftEULA).
 
-At the end it prints the panel address, for example `http://192.168.1.10:8090`. Minecraft then starts for the first time to create the world. This takes a few minutes, longer with mods.
+If the `ufw` firewall is active, it opens the panel port and 50 game ports on the chosen network.
 
-### Install without questions
+When it finishes, **open the panel address it prints and create the administrator account**.
 
-Copy [`examples/answers.env`](examples/answers.env), fill it in (`ACCEPT_EULA="yes"` and `PASSWORD` are required), then run:
-
-```bash
-sudo ./install.sh --config my-answers.env
-```
+To install without questions, copy [`examples/answers.env`](examples/answers.env), fill it in and run `sudo ./install.sh --config my-answers.env`.
 
 ## After installing
 
 | Task | How |
 |---|---|
-| Open the panel | `http://<server-ip>:8090`, or the port you chose |
-| Change the panel password | `sudo mcpanel-passwd` |
-| Update the panel (keeps settings and world) | `git pull && sudo ./install.sh --update` |
-| Change the installation settings | Edit `/etc/mcpanel/config.env`, then `sudo systemctl restart mcpanel-web mcpanel-proxy mcpanel-autostop` |
-| Uninstall | **Settings → Danger zone** in the panel, or `sudo /opt/mcpanel/uninstall.sh` |
+| Create the administrator | Open the panel the first time |
+| Create a server | Sign up from the login page, or **+ Create a server** on the home page |
+| Change resources, version or automation | Server → **Settings → Server and resources** |
+| Limits and sign-up | **Administration** (administrators only) |
+| Turn on notifications | **My account → Browser notifications** |
+| Forgot a password | `sudo mcpanel-passwd <user>` (`--list` shows the users) |
+| Update (keeps accounts, servers and worlds) | `git pull && sudo ./install.sh --update` |
+| Uninstall | **Administration → Danger zone**, or `sudo /opt/mcpanel/uninstall.sh` |
 
-Uninstalling keeps the world and the backups unless you choose to delete them. It does not remove Docker.
+### Import a server you already have
+
+You can register an existing world without moving it. Import copies the mod-loader version (for example `FORGE_VERSION`) from the old container, so your mods keep working:
+
+```bash
+sudo python3 /opt/mcpanel/panel/mcpanel_core.py import-server \
+    --name "My server" --owner admin --data-dir /path/to/world-folder \
+    --type FORGE --version 1.20.1 --ram 8 --from-container old-container-name
+```
 
 ## How it works
 
 ```
-player ──► :25565 mcpanel-proxy ──► 127.0.0.1:25566 Docker (itzg/minecraft-server)
-               │ starts the container if it is off
-browser ─► :8090 mcpanel-web (panel)
-               mcpanel-autostop   stops the container when empty
-               mcpanel-backup     scheduled and manual backups
+player ──► :25565, :25566, ... mcpanel-agent ──► 127.0.0.1 Docker (one container per server)
+                                 │ starts the server when someone connects,
+                                 │ stops it when empty, runs backups, raises alerts
+browser ─► :8090 mcpanel-web (panel and accounts)
 ```
 
 | Path | Contents |
 |---|---|
-| `/opt/mcpanel` | Panel and scripts |
-| `/etc/mcpanel/config.env` | Installation settings |
-| `/etc/mcpanel/secret.json` | Password hash (PBKDF2), readable only by root |
-| `/var/log/mcpanel` | Logs: proxy, auto stop, backups, admin actions |
-| `/var/lib/mcpanel` | Chat messages sent from the panel, temporary bans |
+| `/opt/mcpanel` | Panel, agent and scripts |
+| `/etc/mcpanel/config.env` | System settings written by the installer |
+| `/var/lib/mcpanel/mcpanel.db` | Accounts, servers, limits and events (SQLite). Passwords are stored as PBKDF2 hashes. |
+| `/var/log/mcpanel/servers/<server>/` | Logs of each server: proxy, auto stop, backups, admin actions |
 
-Services: `mcpanel-web`, `mcpanel-proxy`, `mcpanel-autostop`, `mcpanel-backup.timer`.
+Services: `mcpanel-web` and `mcpanel-agent`.
 
 ## Security
 
-- The panel uses plain HTTP. **Do not expose it to the internet.** Use it on your local network, or reach it through a VPN such as ZeroTier, Tailscale or WireGuard. During installation you can bind it to the VPN interface only.
-- The **console, files, backups, players and settings** need the password. The dashboard, the chat and the start, stop and restart buttons can be used by anyone who can reach the panel.
+- The panel uses plain HTTP. **Do not expose it to the internet.** Use it on your local network or through a VPN (ZeroTier, Tailscale, WireGuard). The installer can bind it to the VPN interface only.
+- Anyone who can reach the panel can see every server's status, start any server and, while sign-up is on, create an account and a server. Turn sign-up off in **Administration** once everyone has an account.
 - After 5 wrong passwords, the address is blocked for 5 minutes.
-- The panel runs as root because it manages Docker and system services. File operations are confined to the server folder.
+- The panel and the agent run as root because they manage Docker. File operations are confined to each server's folder.
 
 ## Troubleshooting
 
 - **The panel does not load**: `sudo systemctl status mcpanel-web` and `sudo journalctl -u mcpanel-web -n 50`.
-- **Players cannot connect**: check the proxy with `sudo systemctl status mcpanel-proxy`, check that your firewall allows the game port, and check the address shown in the panel.
-- **The server does not start**: watch the console in the panel, or run `docker logs mcpanel-minecraft`. The first start of a modded server can take several minutes.
-- **A backup failed**: see `/var/log/mcpanel/backup.log`.
+- **Players cannot connect, or a server does not start on connect**: `sudo journalctl -u mcpanel-agent -n 50`. Also check your firewall and the address shown in the panel.
+- **A new server stays in "Preparing"**: the first time, the Minecraft image is downloaded (about 1 GB). If it fails, the server shows the error and the reason.
+- **A backup failed**: `/var/log/mcpanel/servers/<server>/backup.log`.
 
 ## License
 

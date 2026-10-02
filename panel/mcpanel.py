@@ -3,9 +3,10 @@
 # MCServer by Derpchees
 # https://github.com/Derpchees/mcserver
 #
-# Panel web para administrar un servidor de Minecraft en Docker
-# (itzg/minecraft-server). Toda la configuracion vive en
-# /etc/mcpanel/config.env, que escribe install.sh.
+# Panel web para administrar varios servidores de Minecraft en Docker
+# (itzg/minecraft-server), con cuentas de usuario. La configuracion del
+# sistema vive en /etc/mcpanel/config.env y los datos en SQLite
+# (mcpanel_core.py).
 #
 
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -28,56 +29,32 @@ import glob
 import gzip
 import tempfile
 import zipfile
+import sys
 
-CONFIG_ENV = os.environ.get("MCPANEL_CONFIG", "/etc/mcpanel/config.env")
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+import mcpanel_core as core  # noqa: E402
 
-def load_env(path):
-    # Formato KEY="valor", el mismo que leen los scripts de bash
-    values = {}
+INSTALL_DIR = core.INSTALL_DIR
+DEFAULT_LANG = core.DEFAULT_LANG
+PORT = core.PANEL_PORT
+BIND = core.PANEL_BIND
 
-    try:
-        with open(path, "r", encoding="utf-8") as f:
-            for line in f:
-                line = line.strip()
-
-                if not line or line.startswith("#") or "=" not in line:
-                    continue
-
-                key, _, value = line.partition("=")
-                value = value.strip()
-
-                if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
-                    value = value[1:-1]
-
-                values[key.strip()] = value
-    except FileNotFoundError:
-        pass
-
-    return values
+# Servidor de la peticion actual. El manejador lo fija con use_server()
+# y todas las funciones de un servidor lo leen con S().
+_ctx = threading.local()
 
 
-CFG = load_env(CONFIG_ENV)
+def S():
+    return _ctx.srv
 
 
-def cfg(key, default=""):
-    return CFG.get(key, default) or default
+def current_server():
+    return getattr(_ctx, "srv", None)
 
 
-CONTAINER = cfg("CONTAINER", "mcpanel-minecraft")
-SERVER_NAME = cfg("SERVER_NAME", "Minecraft Server")
-PUBLIC_ADDRESS = cfg("PUBLIC_ADDRESS", "")
-DEFAULT_LANG = cfg("LANG_DEFAULT", "en")
-LOG_DIR = cfg("LOG_DIR", "/var/log/mcpanel")
-STATE_DIR = cfg("STATE_DIR", "/var/lib/mcpanel")
-RUN_DIR = cfg("RUN_DIR", "/run/mcpanel")
-INSTALL_DIR = cfg("INSTALL_DIR", "/opt/mcpanel")
-
-LOG_FILE = os.path.join(LOG_DIR, "proxy.log")
-AUTOSTOP_LOG = os.path.join(LOG_DIR, "autostop.log")
-AUTOSTOP_FILE = os.path.join(RUN_DIR, "autostop.json")
-PORT = int(cfg("PANEL_PORT", "8090"))
-BIND = cfg("PANEL_BIND", "0.0.0.0")
+def use_server(srv):
+    _ctx.srv = srv
 
 
 def command(cmd):
@@ -96,18 +73,18 @@ def command(cmd):
 def container_info():
     running = command(
         "docker inspect -f '{{.State.Running}}' "
-        + CONTAINER + " 2>/dev/null"
+        + S().container + " 2>/dev/null"
     )
 
     status = command(
         "docker inspect -f '{{.State.Status}}' "
-        + CONTAINER + " 2>/dev/null"
+        + S().container + " 2>/dev/null"
     )
 
     health = command(
         "docker inspect -f "
         "'{{if .State.Health}}{{.State.Health.Status}}{{else}}no-health{{end}}' "
-        + CONTAINER + " 2>/dev/null"
+        + S().container + " 2>/dev/null"
     )
 
     return running, status, health
@@ -125,14 +102,14 @@ def autostop_info():
     }
 
     try:
-        with open(AUTOSTOP_FILE, "r", encoding="utf-8") as f:
+        with open(S().run_file, "r", encoding="utf-8") as f:
             data = json.load(f)
 
         # Segundos desde que mc-autostop.sh escribio el estado;
         # la pagina lo usa para que el contador no vaya a saltos
         data["age"] = max(
             0,
-            time.time() - os.path.getmtime(AUTOSTOP_FILE)
+            time.time() - os.path.getmtime(S().run_file)
         )
 
         return data
@@ -157,7 +134,7 @@ def read_lines(path):
 
 
 def activity():
-    return read_lines(LOG_FILE)
+    return read_lines(os.path.join(S().log_dir, "proxy.log"))
 
 
 def local_ts(text):
@@ -173,17 +150,19 @@ PLAYER_EVENT = re.compile(
     r"^(\S+) \[.*?\]: (\w{1,16}) (joined|left) the game$"
 )
 
-_player_cache = {"time": 0, "events": []}
+_player_cache = {}
 
 
 def player_events():
     # docker logs es grande; se consulta como mucho cada 10s
-    if time.time() - _player_cache["time"] < 10:
-        return _player_cache["events"]
+    cached = _player_cache.get(S().container)
+
+    if cached and time.time() - cached[0] < 10:
+        return cached[1]
 
     output = command(
         "docker logs --timestamps --since 168h "
-        + CONTAINER
+        + S().container
         + " 2>&1 | grep -E ' (joined|left) the game$'"
     )
 
@@ -210,8 +189,7 @@ def player_events():
             "text": name
         })
 
-    _player_cache["time"] = time.time()
-    _player_cache["events"] = events
+    _player_cache[S().container] = (time.time(), events)
 
     return events
 
@@ -240,7 +218,7 @@ def recent_events(lines, limit=30):
             "text": text
         })
 
-    for line in read_lines(AUTOSTOP_LOG):
+    for line in read_lines(os.path.join(S().log_dir, "autostop.log")):
         stamp, _, rest = line.partition(" | ")
 
         if "APAGADO AUTOMATICAMENTE" in rest:
@@ -283,9 +261,9 @@ def server_data():
 
 def docker_action(name):
     commands = {
-        "start": ["docker", "start", CONTAINER],
-        "stop": ["docker", "stop", CONTAINER],
-        "restart": ["docker", "restart", CONTAINER]
+        "start": ["docker", "start", S().container],
+        "stop": ["docker", "stop", S().container],
+        "restart": ["docker", "restart", S().container]
     }
 
     messages = {
@@ -340,7 +318,7 @@ def send_command(command_text):
         [
             "docker",
             "exec",
-            CONTAINER,
+            S().container,
             "rcon-cli",
             command_text
         ],
@@ -381,7 +359,7 @@ def console():
             "logs",
             "--tail",
             "2000",
-            CONTAINER
+            S().container
         ],
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
@@ -403,8 +381,6 @@ def console():
 # Monitor de recursos
 # ============================================================
 
-DATA_DIR = cfg("DATA_DIR", "/srv/minecraft/data")
-BACKUP_DIR = cfg("BACKUP_DIR", "/srv/minecraft/backups")
 HISTORY_POINTS = 90
 STATS_INTERVAL = 2
 
@@ -412,9 +388,8 @@ _stats = {
     "cpu": 0.0,
     "cpu_history": [],
     "mem_history": [],
-    "container": None,
-    "data_size": None,
-    "backup_size": None,
+    "containers": {},
+    "sizes": {},
     "docker_size": None
 }
 
@@ -500,31 +475,40 @@ def slow_stats_loop():
         try:
             output = command(
                 "docker stats --no-stream --format "
-                "'{{.CPUPerc}}|{{.MemUsage}}' " + CONTAINER + " 2>/dev/null"
+                "'{{.Name}}|{{.CPUPerc}}|{{.MemUsage}}' 2>/dev/null"
             )
 
-            container = None
+            containers = {}
 
-            if "|" in output:
-                cpu_text, mem_text = output.split("|", 1)
-                used, _, limit = mem_text.partition("/")
-                container = {
-                    "cpu": float(cpu_text.strip().rstrip("%") or 0),
+            for line in output.splitlines():
+                parts = line.split("|")
+
+                if len(parts) != 3:
+                    continue
+
+                used, _, limit = parts[2].partition("/")
+                containers[parts[0]] = {
+                    "cpu": float(parts[1].strip().rstrip("%") or 0),
                     "mem_used": parse_docker_size(used),
                     "mem_limit": parse_docker_size(limit)
                 }
 
             with _stats_lock:
-                _stats["container"] = container
+                _stats["containers"] = containers
 
             if time.time() - last_du > 300 or _stats.pop("refresh_du", False):
-                data_size = dir_size(DATA_DIR)
-                backup_size = dir_size(BACKUP_DIR)
+                sizes = {}
+
+                for srv in core.list_servers():
+                    sizes[srv.slug] = {
+                        "data": dir_size(srv.data_dir),
+                        "backups": dir_size(srv.backup_dir)
+                    }
+
                 docker_size = dir_size("/var/lib/docker")
 
                 with _stats_lock:
-                    _stats["data_size"] = data_size
-                    _stats["backup_size"] = backup_size
+                    _stats["sizes"] = sizes
                     _stats["docker_size"] = docker_size
 
                 last_du = time.time()
@@ -569,7 +553,11 @@ def configured_disks():
     found = []
     seen = {}
 
-    for role, path in (("data", DATA_DIR), ("backups", BACKUP_DIR), ("system", "/")):
+    srv = current_server()
+    data_path = srv.data_dir if srv else core.DATA_ROOT
+    backup_path_ = srv.backup_dir if srv else core.BACKUP_ROOT
+
+    for role, path in (("data", data_path), ("backups", backup_path_), ("system", "/")):
         if not os.path.exists(path):
             continue
 
@@ -796,6 +784,23 @@ def cpu_temperature():
     return None
 
 
+def server_sizes():
+    # Tamano del servidor actual, o de todos sumados (vista general)
+    srv = current_server()
+    sizes = _stats["sizes"]
+
+    if srv:
+        own = sizes.get(srv.slug, {})
+        return {"data": own.get("data"), "backups": own.get("backups"), "docker": _stats["docker_size"]}
+
+    known = [v for v in sizes.values()]
+    return {
+        "data": sum(v.get("data") or 0 for v in known) if known else None,
+        "backups": sum(v.get("backups") or 0 for v in known) if known else None,
+        "docker": _stats["docker_size"]
+    }
+
+
 def system_stats():
     mem_total, mem_used = read_memory()
 
@@ -813,13 +818,14 @@ def system_stats():
                 "used": mem_used,
                 "history": list(_stats["mem_history"])
             },
-            "disks": disk_list({
-                "data": _stats["data_size"],
-                "backups": _stats["backup_size"],
-                "docker": _stats["docker_size"]
-            }),
-            "container": _stats["container"]
+            "disks": disk_list(server_sizes()),
+            "container": None
         }
+
+        srv = current_server()
+
+        if srv:
+            data["container"] = _stats["containers"].get(srv.container)
 
     try:
         with open("/proc/uptime", "r") as f:
@@ -834,7 +840,6 @@ def system_stats():
 # Chat del servidor
 # ============================================================
 
-LOGS_DIR = os.path.join(DATA_DIR, "logs")
 CHAT_LIMIT = 3000
 
 # Forge: [29Sep2026 00:40:42.324] [Server thread/INFO] [...]: mensaje
@@ -925,7 +930,6 @@ def parse_chat_file(path):
     return messages
 
 
-PANEL_CHAT_FILE = os.path.join(STATE_DIR, "chat.jsonl")
 CHAT_MAX_CHARS = 240
 
 
@@ -935,7 +939,7 @@ def panel_chat_messages():
     messages = []
 
     try:
-        with open(PANEL_CHAT_FILE, "r", encoding="utf-8") as f:
+        with open(os.path.join(S().state_dir, "chat.jsonl"), "r", encoding="utf-8") as f:
             for line in f:
                 try:
                     messages.append(json.loads(line))
@@ -985,7 +989,7 @@ def send_chat(text):
     )
 
     result = subprocess.run(
-        ["docker", "exec", CONTAINER, "rcon-cli", "tellraw", "@a", payload],
+        ["docker", "exec", S().container, "rcon-cli", "tellraw", "@a", payload],
         capture_output=True,
         text=True
     )
@@ -997,10 +1001,10 @@ def send_chat(text):
             "output": result.stderr.strip()
         }
 
-    os.makedirs(os.path.dirname(PANEL_CHAT_FILE), exist_ok=True)
+    os.makedirs(os.path.dirname(os.path.join(S().state_dir, "chat.jsonl")), exist_ok=True)
 
     with _chat_lock:
-        with open(PANEL_CHAT_FILE, "a", encoding="utf-8") as f:
+        with open(os.path.join(S().state_dir, "chat.jsonl"), "a", encoding="utf-8") as f:
             f.write(json.dumps({
                 "ts": int(time.time()),
                 "type": "say",
@@ -1012,8 +1016,8 @@ def send_chat(text):
 
 
 def chat_history():
-    files = glob.glob(os.path.join(LOGS_DIR, "*.log.gz"))
-    latest = os.path.join(LOGS_DIR, "latest.log")
+    files = glob.glob(os.path.join(os.path.join(S().data_dir, "logs"), "*.log.gz"))
+    latest = os.path.join(os.path.join(S().data_dir, "logs"), "latest.log")
 
     if os.path.exists(latest):
         files.append(latest)
@@ -1062,106 +1066,9 @@ def chat_history():
 
 
 # ============================================================
-# Autenticacion del gestor de archivos
-# ============================================================
-
-CONFIG_FILE = cfg("SECRET_FILE", "/etc/mcpanel/secret.json")
-SESSION_COOKIE = "mcfiles"
-SESSION_SECONDS = 12 * 3600
-
-_sessions = {}
-_failed_logins = {}
-_auth_lock = threading.Lock()
-
-
-def load_config():
-    try:
-        with open(CONFIG_FILE, "r", encoding="utf-8") as f:
-            return json.load(f)
-    except Exception:
-        return {}
-
-
-def check_password(password):
-    stored = load_config().get("files_password", "")
-
-    try:
-        algorithm, iterations, salt, expected = stored.split("$")
-    except ValueError:
-        return False
-
-    if algorithm != "pbkdf2_sha256":
-        return False
-
-    digest = hashlib.pbkdf2_hmac(
-        "sha256",
-        password.encode("utf-8"),
-        bytes.fromhex(salt),
-        int(iterations)
-    ).hex()
-
-    return hmac.compare_digest(digest, expected)
-
-
-def create_session():
-    token = secrets.token_urlsafe(32)
-
-    with _auth_lock:
-        now = time.time()
-
-        for key in [k for k, v in _sessions.items() if v < now]:
-            del _sessions[key]
-
-        _sessions[token] = now + SESSION_SECONDS
-
-    return token
-
-
-def valid_session(token):
-    if not token:
-        return False
-
-    with _auth_lock:
-        expires = _sessions.get(token)
-
-        if not expires or expires < time.time():
-            _sessions.pop(token, None)
-            return False
-
-        return True
-
-
-def end_session(token):
-    with _auth_lock:
-        _sessions.pop(token, None)
-
-
-def login_blocked(ip):
-    with _auth_lock:
-        count, until = _failed_logins.get(ip, (0, 0))
-        return until > time.time()
-
-
-def register_login(ip, ok):
-    with _auth_lock:
-        if ok:
-            _failed_logins.pop(ip, None)
-            return
-
-        count, _ = _failed_logins.get(ip, (0, 0))
-        count += 1
-
-        # 5 intentos fallidos -> bloqueo de 5 minutos
-        until = time.time() + 300 if count >= 5 else 0
-        _failed_logins[ip] = (0 if until else count, until)
-
-
-# ============================================================
 # Gestor de archivos
 # ============================================================
 
-FILE_UID = int(cfg("MC_UID", "1000"))
-FILE_GID = int(cfg("MC_GID", "1000"))
 MAX_EDIT_BYTES = 2 * 1024 * 1024
 
 TEXT_EXTENSIONS = {
@@ -1178,7 +1085,7 @@ class FileError(Exception):
 
 
 def safe_path(relative, must_exist=True):
-    root = os.path.realpath(DATA_DIR)
+    root = os.path.realpath(S().data_dir)
     relative = (relative or "").replace("\\", "/").lstrip("/")
     full = os.path.realpath(os.path.join(root, relative))
 
@@ -1194,7 +1101,7 @@ def safe_path(relative, must_exist=True):
 
 
 def relative_path(full):
-    rel = os.path.relpath(full, os.path.realpath(DATA_DIR))
+    rel = os.path.relpath(full, os.path.realpath(S().data_dir))
     return "" if rel == "." else rel.replace(os.sep, "/")
 
 
@@ -1212,7 +1119,7 @@ def valid_name(name):
 
 def give_to_server(path):
     try:
-        os.chown(path, FILE_UID, FILE_GID, follow_symlinks=False)
+        os.chown(path, core.MC_UID, core.MC_GID, follow_symlinks=False)
     except Exception:
         pass
 
@@ -1310,7 +1217,7 @@ def make_folder(relative, name):
 def rename_item(relative, name):
     source = safe_path(relative)
 
-    if source == os.path.realpath(DATA_DIR):
+    if source == os.path.realpath(S().data_dir):
         raise FileError("No se puede renombrar la carpeta raíz")
 
     target = os.path.join(os.path.dirname(source), valid_name(name))
@@ -1327,7 +1234,7 @@ def rename_item(relative, name):
 def delete_item(relative):
     full = safe_path(relative)
 
-    if full == os.path.realpath(DATA_DIR):
+    if full == os.path.realpath(S().data_dir):
         raise FileError("No se puede borrar la carpeta raíz")
 
     if os.path.isdir(full) and not os.path.islink(full):
@@ -1342,7 +1249,7 @@ def ensure_folder(relative):
     # Crea la carpeta (y las intermedias) si no existen; se usa al
     # soltar carpetas completas en el gestor
     folder = safe_path(relative, must_exist=False)
-    root = os.path.realpath(DATA_DIR)
+    root = os.path.realpath(S().data_dir)
     missing = []
     current = folder
 
@@ -1360,7 +1267,7 @@ def ensure_folder(relative):
 
 def move_items(paths, dest):
     target_dir = safe_path(dest)
-    root = os.path.realpath(DATA_DIR)
+    root = os.path.realpath(S().data_dir)
 
     if not os.path.isdir(target_dir):
         raise FileError("El destino no es una carpeta")
@@ -1395,7 +1302,7 @@ def move_items(paths, dest):
 
 
 def delete_items(paths):
-    root = os.path.realpath(DATA_DIR)
+    root = os.path.realpath(S().data_dir)
 
     if not paths:
         raise FileError("No hay elementos seleccionados")
@@ -1425,7 +1332,7 @@ def build_zip(paths):
     if not paths:
         raise FileError("No hay elementos seleccionados")
 
-    root = os.path.realpath(DATA_DIR)
+    root = os.path.realpath(S().data_dir)
     sources = [safe_path(p) for p in paths]
 
     if len(sources) == 1:
@@ -1505,8 +1412,6 @@ def receive_upload(handler, relative, name, length):
 # ============================================================
 
 PLAYER_NAME = re.compile(r"^\w{1,16}$")
-TIMEOUTS_FILE = os.path.join(STATE_DIR, "timeouts.json")
-ACTIONS_LOG = os.path.join(LOG_DIR, "actions.log")
 GAMEMODES = ("survival", "creative", "adventure", "spectator")
 _timeouts_lock = threading.Lock()
 
@@ -1533,12 +1438,12 @@ def write_json_file(path, data, owner=False):
 
 
 def load_timeouts():
-    return read_json_file(TIMEOUTS_FILE, {})
+    return read_json_file(os.path.join(S().state_dir, "timeouts.json"), {})
 
 
 def rcon(*args):
     result = subprocess.run(
-        ["docker", "exec", CONTAINER, "rcon-cli"] + [str(a) for a in args],
+        ["docker", "exec", S().container, "rcon-cli"] + [str(a) for a in args],
         capture_output=True,
         text=True
     )
@@ -1551,14 +1456,14 @@ def rcon(*args):
 
 def log_action(text):
     try:
-        with open(ACTIONS_LOG, "a", encoding="utf-8") as f:
+        with open(os.path.join(S().log_dir, "actions.log"), "a", encoding="utf-8") as f:
             f.write(time.strftime("%Y-%m-%d %H:%M:%S") + " | " + text + "\n")
     except Exception:
         pass
 
 
 def list_players():
-    data = os.path.realpath(DATA_DIR)
+    data = os.path.realpath(S().data_dir)
     cache = read_json_file(os.path.join(data, "usercache.json"), [])
     ops = read_json_file(os.path.join(data, "ops.json"), [])
     whitelist = read_json_file(os.path.join(data, "whitelist.json"), [])
@@ -1685,7 +1590,7 @@ def player_action(data):
         with _timeouts_lock:
             timeouts = load_timeouts()
             timeouts.pop(name.lower(), None)
-            write_json_file(TIMEOUTS_FILE, timeouts)
+            write_json_file(os.path.join(S().state_dir, "timeouts.json"), timeouts)
 
     elif action == "timeout":
         try:
@@ -1703,7 +1608,7 @@ def player_action(data):
             with _timeouts_lock:
                 timeouts = load_timeouts()
                 timeouts[name.lower()] = until
-                write_json_file(TIMEOUTS_FILE, timeouts)
+                write_json_file(os.path.join(S().state_dir, "timeouts.json"), timeouts)
 
     elif action == "pardon":
         ok, out = rcon("pardon", name)
@@ -1711,7 +1616,7 @@ def player_action(data):
         with _timeouts_lock:
             timeouts = load_timeouts()
             timeouts.pop(name.lower(), None)
-            write_json_file(TIMEOUTS_FILE, timeouts)
+            write_json_file(os.path.join(S().state_dir, "timeouts.json"), timeouts)
 
     elif action in ("op", "deop"):
         ok, out = rcon(action, name)
@@ -1776,47 +1681,48 @@ def player_action(data):
 
 
 def timeout_loop():
-    # Levanta los bans temporales vencidos. Con el servidor apagado se
-    # edita banned-players.json directamente (Minecraft lo lee al arrancar).
-    bans_file = os.path.join(DATA_DIR, "banned-players.json")
-
+    # Levanta los bans temporales vencidos de todos los servidores. Con el
+    # servidor apagado se edita banned-players.json (Minecraft lo lee al arrancar).
     while True:
         time.sleep(30)
 
-        try:
-            with _timeouts_lock:
-                timeouts = load_timeouts()
-                now = time.time()
-                expired = [name for name, until in timeouts.items() if until <= now]
+        for srv in core.list_servers():
+            use_server(srv)
+            bans_file = os.path.join(srv.data_dir, "banned-players.json")
 
-                if not expired:
-                    continue
+            try:
+                with _timeouts_lock:
+                    timeouts = load_timeouts()
+                    now = time.time()
+                    expired = [name for name, until in timeouts.items() if until <= now]
 
-                running, _, _ = container_info()
+                    if not expired:
+                        continue
 
-                for name in expired:
-                    if running == "true":
-                        ok, out = rcon("pardon", name)
-                    else:
-                        bans = read_json_file(bans_file, [])
-                        bans = [b for b in bans if str(b.get("name", "")).lower() != name]
-                        write_json_file(bans_file, bans, owner=True)
-                        ok = True
+                    running, _, _ = container_info()
 
-                    if ok:
-                        timeouts.pop(name, None)
-                        log_action("timeout vencido " + name)
+                    for name in expired:
+                        if running == "true":
+                            ok, out = rcon("pardon", name)
+                        else:
+                            bans = read_json_file(bans_file, [])
+                            bans = [b for b in bans if str(b.get("name", "")).lower() != name]
+                            write_json_file(bans_file, bans, owner=True)
+                            ok = True
 
-                write_json_file(TIMEOUTS_FILE, timeouts)
-        except Exception:
-            pass
+                        if ok:
+                            timeouts.pop(name, None)
+                            log_action("timeout vencido " + name)
+
+                    write_json_file(os.path.join(S().state_dir, "timeouts.json"), timeouts)
+            except Exception:
+                pass
 
 
 # ============================================================
 # Ajustes del servidor (server.properties)
 # ============================================================
 
-PROPERTIES_FILE = os.path.join(DATA_DIR, "server.properties")
 
 # Solo estas claves se pueden leer y cambiar desde el panel. Puertos y
 # RCON quedan fuera a proposito: cambiarlos dejaria al panel sin conexion.
@@ -1877,7 +1783,7 @@ def escape_property(value):
 def read_properties():
     values = {}
 
-    for line in read_lines(PROPERTIES_FILE):
+    for line in read_lines(os.path.join(S().data_dir, "server.properties")):
         if line.startswith("#") or "=" not in line:
             continue
 
@@ -1936,7 +1842,7 @@ def save_settings(changes):
     if not isinstance(changes, dict) or not changes:
         raise FileError("No hay cambios que guardar")
 
-    if not os.path.isfile(PROPERTIES_FILE):
+    if not os.path.isfile(os.path.join(S().data_dir, "server.properties")):
         raise FileError("No existe server.properties", 404)
 
     current = read_properties()
@@ -1955,7 +1861,7 @@ def save_settings(changes):
         return {"ok": True, "message": "Sin cambios", "changed": [], "restart": False}
 
     # Se reescriben solo las lineas cambiadas; el resto queda intacto
-    with open(PROPERTIES_FILE, "r", encoding="utf-8", errors="replace") as f:
+    with open(os.path.join(S().data_dir, "server.properties"), "r", encoding="utf-8", errors="replace") as f:
         lines = f.read().splitlines()
 
     pending = dict(updates)
@@ -1972,15 +1878,15 @@ def save_settings(changes):
     for key, value in pending.items():
         lines.append(key + "=" + escape_property(value))
 
-    mode = os.stat(PROPERTIES_FILE).st_mode & 0o7777
-    tmp = PROPERTIES_FILE + ".tmp-panel"
+    mode = os.stat(os.path.join(S().data_dir, "server.properties")).st_mode & 0o7777
+    tmp = os.path.join(S().data_dir, "server.properties") + ".tmp-panel"
 
     with open(tmp, "w", encoding="utf-8") as f:
         f.write("\n".join(lines) + "\n")
 
     os.chmod(tmp, mode)
     give_to_server(tmp)
-    os.replace(tmp, PROPERTIES_FILE)
+    os.replace(tmp, os.path.join(S().data_dir, "server.properties"))
 
     running, _, _ = container_info()
     applied = []
@@ -1991,7 +1897,7 @@ def save_settings(changes):
                 continue
 
             result = subprocess.run(
-                ["docker", "exec", CONTAINER, "rcon-cli"] + LIVE_SETTINGS[key](value),
+                ["docker", "exec", S().container, "rcon-cli"] + LIVE_SETTINGS[key](value),
                 capture_output=True,
                 text=True
             )
@@ -2014,26 +1920,42 @@ def save_settings(changes):
 # ============================================================
 
 BACKUP_NAME = re.compile(r"^mc-(auto|manual)-(\d{8}-\d{6})\.tar\.gz$")
-BACKUP_LOG = os.path.join(LOG_DIR, "backup.log")
 
 
 def backup_running():
-    return command(
-        "systemctl is-active mcpanel-backup@manual.service mcpanel-backup@auto.service"
-    ).split().count("active") > 0
+    # Los respaldos corren como unidades transitorias mcpanel-backup-<slug>-<ts>
+    output = command(
+        "systemctl list-units --type=service --state=active --no-legend --plain "
+        + shlex.quote("mcpanel-backup-%s-*" % S().slug)
+    )
+    return bool(output.strip())
+
+
+def next_backup_ts():
+    if not S().backups:
+        return None
+
+    hour, minute = [int(x) for x in S().backup_time.split(":")]
+    now = time.localtime()
+    target = time.mktime((now.tm_year, now.tm_mon, now.tm_mday, hour, minute, 0, 0, 0, -1))
+
+    if target <= time.time():
+        target += 86400
+
+    return int(target)
 
 
 def list_backups():
     backups = []
 
-    if os.path.isdir(BACKUP_DIR):
-        for name in os.listdir(BACKUP_DIR):
+    if os.path.isdir(S().backup_dir):
+        for name in os.listdir(S().backup_dir):
             m = BACKUP_NAME.match(name)
 
             if not m:
                 continue
 
-            st = os.stat(os.path.join(BACKUP_DIR, name))
+            st = os.stat(os.path.join(S().backup_dir, name))
 
             backups.append({
                 "name": name,
@@ -2046,26 +1968,11 @@ def list_backups():
 
     # Mantiene al dia la grafica de almacenamiento sin esperar al du
     with _stats_lock:
-        _stats["backup_size"] = sum(b["size"] for b in backups)
+        _stats["sizes"].setdefault(S().slug, {})["backups"] = sum(b["size"] for b in backups)
 
-    timer = command(
-        "systemctl show mcpanel-backup.timer -p NextElapseUSecRealtime --value"
-    )
+    next_ts = next_backup_ts()
 
-    next_ts = None
-
-    try:
-        next_ts = int(
-            subprocess.run(
-                ["date", "-d", timer, "+%s"],
-                capture_output=True,
-                text=True
-            ).stdout.strip()
-        )
-    except Exception:
-        pass
-
-    log_lines = read_lines(BACKUP_LOG)
+    log_lines = read_lines(os.path.join(S().log_dir, "backup.log"))
 
     return {
         "running": backup_running(),
@@ -2079,8 +1986,12 @@ def start_backup():
     if backup_running():
         raise FileError("Ya hay un respaldo en curso")
 
+    S().write_env()
+
     result = subprocess.run(
-        ["systemctl", "start", "--no-block", "mcpanel-backup@manual.service"],
+        ["systemd-run", "--unit", "mcpanel-backup-%s-%d" % (S().slug, int(time.time())),
+         "--collect", "--quiet", "--nice=10",
+         os.path.join(INSTALL_DIR, "bin", "mcpanel-backup.sh"), S().slug, "manual"],
         capture_output=True,
         text=True
     )
@@ -2095,7 +2006,7 @@ def backup_path(name):
     if not BACKUP_NAME.match(name or ""):
         raise FileError("Respaldo no válido", 404)
 
-    full = os.path.join(BACKUP_DIR, name)
+    full = os.path.join(S().backup_dir, name)
 
     if not os.path.isfile(full):
         raise FileError("El respaldo no existe", 404)
@@ -2108,16 +2019,547 @@ def delete_backup(name):
     return {"ok": True, "message": "Respaldo eliminado"}
 
 
+
+
 # ============================================================
-# Desinstalar
+# Cuentas y sesiones
 # ============================================================
+
+SESSION_COOKIE = "mcpanel"
+SESSION_SECONDS = 12 * 3600
+VERSION_TEXT = re.compile(r"^(LATEST|SNAPSHOT|[0-9][0-9A-Za-z._-]{0,19})$")
+
+_sessions = {}
+_failed_logins = {}
+_auth_lock = threading.Lock()
+
+
+def create_session(user_id):
+    token = secrets.token_urlsafe(32)
+
+    with _auth_lock:
+        now = time.time()
+
+        for key in [k for k, v in _sessions.items() if v[1] < now]:
+            del _sessions[key]
+
+        _sessions[token] = (user_id, now + SESSION_SECONDS)
+
+    return token
+
+
+def session_user(token):
+    if not token:
+        return None
+
+    with _auth_lock:
+        entry = _sessions.get(token)
+
+        if not entry or entry[1] < time.time():
+            _sessions.pop(token, None)
+            return None
+
+    user = core.get_user(entry[0])
+
+    if not user:
+        end_session(token)
+
+    return user
+
+
+def end_session(token):
+    with _auth_lock:
+        _sessions.pop(token, None)
+
+
+def end_user_sessions(user_id):
+    with _auth_lock:
+        for key in [k for k, v in _sessions.items() if v[0] == user_id]:
+            del _sessions[key]
+
+
+def login_blocked(ip):
+    with _auth_lock:
+        count, until = _failed_logins.get(ip, (0, 0))
+        return until > time.time()
+
+
+def register_login(ip, ok):
+    with _auth_lock:
+        if ok:
+            _failed_logins.pop(ip, None)
+            return
+
+        count, _ = _failed_logins.get(ip, (0, 0))
+        count += 1
+
+        # 5 intentos fallidos -> bloqueo de 5 minutos
+        until = time.time() + 300 if count >= 5 else 0
+        _failed_logins[ip] = (0 if until else count, until)
+
+
+def can_manage(user, srv):
+    return bool(user) and (user["role"] == "admin" or srv.owner_id == user["id"])
+
+
+def user_info(user):
+    if not user:
+        return None
+
+    return {"id": user["id"], "username": user["username"], "role": user["role"]}
+
+
+def limits_for(user):
+    settings = core.all_settings()
+    ram = core.system_ram_gb()
+    cores = os.cpu_count() or 1
+    admin = bool(user) and user["role"] == "admin"
+
+    max_ram = ram if admin else min(ram, int(settings["max_ram_gb"] or 1))
+    max_cpu = int(settings["max_cpu"] or 0)
+
+    return {
+        "system_ram_gb": ram,
+        "cores": cores,
+        "max_ram_gb": max(1, max_ram),
+        "max_cpu": cores if admin or max_cpu <= 0 else min(cores, max_cpu),
+        "max_servers": 1000 if admin else int(settings["max_servers_per_user"] or 1)
+    }
+
+
+def auth_state(user):
+    settings = core.all_settings()
+
+    return {
+        "setup": core.user_count() == 0,
+        "user": user_info(user),
+        "signup": settings["signup"] == "yes",
+        "limits": limits_for(user),
+        "system_name": core.SYSTEM_NAME,
+        "types": list(core.SERVER_TYPES),
+        "my_servers": [s.id for s in core.servers_of(user["id"])] if user else []
+    }
+
+
+def check_new_password(password):
+    if len(password or "") < 6:
+        raise FileError("La contraseña debe tener al menos 6 caracteres")
+
+
+def check_username(username):
+    if not core.USERNAME.match(username or ""):
+        raise FileError("Usuario no válido: 3 a 24 letras, números, punto, guion o guion bajo")
+
+    if core.find_user(username):
+        raise FileError("Ese usuario ya existe")
+
+
+def clean_server_fields(data, user, partial=False):
+    # Valida nombre, tipo, version y recursos dentro de los limites del usuario
+    limits = limits_for(user)
+    out = {}
+
+    if not partial or "name" in data:
+        name = re.sub(r"[\x00-\x1f\x7f]", " ", str(data.get("name", ""))).strip()[:40]
+
+        if not name:
+            raise FileError("Falta el nombre del servidor")
+
+        out["name"] = name
+
+    if not partial or "type" in data:
+        type_ = str(data.get("type", "PAPER")).upper()
+
+        if type_ not in core.SERVER_TYPES:
+            raise FileError("Tipo de servidor no válido")
+
+        out["type"] = type_
+
+    if not partial or "version" in data:
+        version = str(data.get("version", "LATEST")).strip() or "LATEST"
+
+        if not VERSION_TEXT.match(version):
+            raise FileError("Versión no válida")
+
+        out["version"] = version
+
+    if not partial or "max_gb" in data:
+        try:
+            max_gb = int(data.get("max_gb", 2))
+        except (TypeError, ValueError):
+            max_gb = 0
+
+        if not 1 <= max_gb <= limits["max_ram_gb"]:
+            raise FileError("La RAM debe estar entre 1 y %d GB" % limits["max_ram_gb"])
+
+        out["max_gb"] = max_gb
+
+    if not partial or "cpu" in data:
+        try:
+            cpu = int(data.get("cpu", 0))
+        except (TypeError, ValueError):
+            cpu = -1
+
+        if not 0 <= cpu <= limits["max_cpu"]:
+            raise FileError("Los núcleos deben estar entre 0 y %d" % limits["max_cpu"])
+
+        # Con limite de CPU configurado por el admin, 0 (sin limite) no se permite
+        if cpu == 0 and limits["max_cpu"] < limits["cores"]:
+            cpu = limits["max_cpu"]
+
+        out["cpu"] = cpu
+
+    for key in ("autostop", "backups"):
+        if key in data:
+            out[key] = 1 if data[key] in (True, 1, "1", "true", "yes") else 0
+
+    if "idle_minutes" in data:
+        try:
+            idle = int(data["idle_minutes"])
+        except (TypeError, ValueError):
+            idle = 0
+
+        if not 1 <= idle <= 1440:
+            raise FileError("Los minutos sin jugadores deben estar entre 1 y 1440")
+
+        out["idle_minutes"] = idle
+
+    if "backup_time" in data:
+        value = str(data["backup_time"])
+
+        if not re.match(r"^([01]\d|2[0-3]):[0-5]\d$", value):
+            raise FileError("Hora de respaldo no válida (HH:MM)")
+
+        out["backup_time"] = value
+
+    if "backup_keep" in data:
+        try:
+            keep = int(data["backup_keep"])
+        except (TypeError, ValueError):
+            keep = 0
+
+        if not 1 <= keep <= 60:
+            raise FileError("Respaldos a conservar: entre 1 y 60")
+
+        out["backup_keep"] = keep
+
+    return out
+
+
+def build_in_background(srv, start, restart_after=False):
+    # Descargar la imagen puede tardar minutos: se hace en un hilo
+    def work():
+        try:
+            if restart_after:
+                set_stop_hint(srv, "restart")
+                subprocess.run(["docker", "stop", srv.container], capture_output=True)
+
+            core.build_container(srv, start=start or restart_after)
+            core.update_server(srv.id, state="ready", state_detail="")
+        except Exception as error:
+            core.update_server(srv.id, state="error", state_detail=str(error)[:300])
+            core.add_event(srv.id, "server_error", "error", str(error)[:200])
+
+    threading.Thread(target=work, daemon=True).start()
+
+
+def create_server_for(user, data):
+    fields = clean_server_fields(data, user)
+
+    if len(core.servers_of(user["id"])) >= limits_for(user)["max_servers"]:
+        raise FileError("Ya tienes el máximo de servidores permitidos")
+
+    srv = core.create_server_row(owner_id=user["id"], type_=fields.pop("type"), **fields)
+    log_server_action(srv, "servidor creado por " + user["username"])
+    build_in_background(srv, start=True)
+
+    return srv
+
+
+def setup_admin(data):
+    if core.user_count() > 0:
+        raise FileError("El sistema ya está configurado", 403)
+
+    username = str(data.get("username", "")).strip()
+    password = str(data.get("password", ""))
+
+    check_username(username)
+    check_new_password(password)
+
+    user_id = core.create_user(username, password, role="admin")
+    user = core.get_user(user_id)
+
+    if data.get("server"):
+        create_server_for(user, data["server"])
+
+    return user
+
+
+def signup(data):
+    if core.get_setting("signup") != "yes":
+        raise FileError("El registro de cuentas está desactivado", 403)
+
+    username = str(data.get("username", "")).strip()
+    password = str(data.get("password", ""))
+
+    check_username(username)
+    check_new_password(password)
+
+    # Se valida el servidor antes de crear la cuenta
+    clean_server_fields(data.get("server") or {}, None)
+
+    user_id = core.create_user(username, password)
+    user = core.get_user(user_id)
+
+    try:
+        create_server_for(user, data.get("server") or {})
+    except Exception:
+        core.execute("DELETE FROM users WHERE id = ?", (user_id,))
+        raise
+
+    return user
+
+
+def change_password(user, data):
+    if not core.verify_password(str(data.get("current", "")), user["password"]):
+        raise FileError("La contraseña actual no es correcta", 403)
+
+    check_new_password(str(data.get("password", "")))
+    core.execute("UPDATE users SET password = ? WHERE id = ?",
+                 (core.hash_password(data["password"]), user["id"]))
+
+    return {"ok": True, "message": "Contraseña actualizada"}
+
+
+# ============================================================
+# Servidores: estado, cambios y borrado
+# ============================================================
+
+def set_stop_hint(srv, reason):
+    try:
+        os.makedirs(os.path.dirname(srv.run_file), exist_ok=True)
+
+        with open(srv.run_file + ".hint", "w") as f:
+            f.write("%s %d" % (reason, int(time.time())))
+    except OSError:
+        pass
+
+
+def log_server_action(srv, text):
+    try:
+        os.makedirs(srv.log_dir, exist_ok=True)
+
+        with open(os.path.join(srv.log_dir, "actions.log"), "a", encoding="utf-8") as f:
+            f.write(time.strftime("%Y-%m-%d %H:%M:%S") + " | " + text + "\n")
+    except OSError:
+        pass
+
+
+def server_summary(srv, owners):
+    state = read_json_file(srv.run_file, {})
+
+    info = srv.public(owners.get(srv.owner_id))
+    info.update({
+        "running": bool(state.get("running")),
+        "health": state.get("health", "offline"),
+        "players": state.get("players", 0),
+        "names": state.get("names", [])
+    })
+
+    return info
+
+
+def list_public_servers():
+    owners = {row["id"]: row["username"] for row in core.query("SELECT id, username FROM users")}
+    return [server_summary(srv, owners) for srv in core.list_servers()]
+
+
+def update_server_config(srv, data, user):
+    fields = clean_server_fields(data, user, partial=True)
+    changed = {k: v for k, v in fields.items() if getattr(srv, k) != v}
+
+    if not changed:
+        return {"ok": True, "message": "Sin cambios", "rebuild": False}
+
+    core.update_server(srv.id, **changed)
+    fresh = core.get_server(srv.id)
+    fresh.write_env()
+    log_server_action(fresh, "configuración cambiada por %s: %s" % (user["username"], ", ".join(sorted(changed))))
+
+    # Recursos, tipo o version: hay que recrear el contenedor
+    rebuild = bool({"type", "version", "max_gb", "cpu", "autostop", "name"} & set(changed))
+
+    if rebuild:
+        running = core.container_state(fresh)[0] == "running"
+        core.update_server(srv.id, state="creating", state_detail="rebuild")
+        build_in_background(fresh, start=False, restart_after=running)
+
+    return {"ok": True, "message": "Servidor actualizado", "rebuild": rebuild}
+
+
+def safe_delete_dir(path, root):
+    # Solo se borran carpetas dentro de las raices de datos o respaldos
+    real = os.path.realpath(path)
+    allowed = [os.path.realpath(r) for r in (core.DATA_ROOT, core.BACKUP_ROOT, root) if r]
+
+    if real in allowed or not any(real.startswith(a + os.sep) for a in allowed):
+        return False
+
+    shutil.rmtree(real, ignore_errors=True)
+    return True
+
+
+def delete_server(srv, purge_data, purge_backups, user):
+    set_stop_hint(srv, "manual")
+    core.remove_container(srv)
+
+    if purge_data:
+        safe_delete_dir(srv.data_dir, os.path.dirname(srv.data_dir))
+
+    if purge_backups:
+        safe_delete_dir(srv.backup_dir, os.path.dirname(srv.backup_dir))
+
+    shutil.rmtree(srv.state_dir, ignore_errors=True)
+
+    for path in (srv.run_file, srv.run_file + ".hint"):
+        try:
+            os.remove(path)
+        except OSError:
+            pass
+
+    core.execute("DELETE FROM servers WHERE id = ?", (srv.id,))
+    core.add_event(None, "server_deleted", "info", "%s (%s)" % (srv.name, user["username"]))
+
+
+def check_double_confirm(data, expected):
+    # Doble confirmacion: casilla "entiendo" + escribir el texto exacto
+    if not data.get("understand"):
+        raise FileError("Falta confirmar que entiendes que no se puede deshacer")
+
+    if str(data.get("confirm", "")).strip() != expected:
+        raise FileError("El texto de confirmación no coincide")
+
+
+def delete_account(user, data):
+    check_double_confirm(data, user["username"])
+
+    if user["role"] == "admin":
+        admins = core.query("SELECT COUNT(*) AS n FROM users WHERE role = 'admin'", one=True)["n"]
+
+        if admins <= 1:
+            raise FileError("Eres el único administrador; nombra a otro antes de borrar tu cuenta")
+
+    for srv in core.servers_of(user["id"]):
+        delete_server(srv, bool(data.get("purge_data")), bool(data.get("purge_backups")), user)
+
+    end_user_sessions(user["id"])
+    core.execute("DELETE FROM users WHERE id = ?", (user["id"],))
+
+    return {"ok": True, "message": "Cuenta eliminada"}
+
+
+# ============================================================
+# Administracion
+# ============================================================
+
+def admin_users():
+    servers = {}
+
+    for srv in core.list_servers():
+        servers.setdefault(srv.owner_id, []).append({"id": srv.id, "name": srv.name})
+
+    return [{
+        "id": row["id"],
+        "username": row["username"],
+        "role": row["role"],
+        "created": row["created"],
+        "servers": servers.get(row["id"], [])
+    } for row in core.query("SELECT * FROM users ORDER BY id")]
+
+
+def admin_update_user(admin, data):
+    target = core.get_user(int(data.get("id", 0)))
+
+    if not target:
+        raise FileError("No existe el usuario", 404)
+
+    if "role" in data:
+        role = data["role"]
+
+        if role not in ("admin", "user"):
+            raise FileError("Rol no válido")
+
+        if target["id"] == admin["id"] and role != "admin":
+            raise FileError("No puedes quitarte el rol de administrador a ti mismo")
+
+        core.execute("UPDATE users SET role = ? WHERE id = ?", (role, target["id"]))
+
+    if data.get("password"):
+        check_new_password(data["password"])
+        core.execute("UPDATE users SET password = ? WHERE id = ?",
+                     (core.hash_password(data["password"]), target["id"]))
+        end_user_sessions(target["id"])
+
+    return {"ok": True, "message": "Usuario actualizado"}
+
+
+def admin_delete_user(admin, data):
+    target = core.get_user(int(data.get("id", 0)))
+
+    if not target:
+        raise FileError("No existe el usuario", 404)
+
+    if target["id"] == admin["id"]:
+        raise FileError("Para borrar tu propia cuenta usa la página de tu cuenta")
+
+    check_double_confirm(data, target["username"])
+
+    for srv in core.servers_of(target["id"]):
+        delete_server(srv, bool(data.get("purge_data")), bool(data.get("purge_backups")), admin)
+
+    end_user_sessions(target["id"])
+    core.execute("DELETE FROM users WHERE id = ?", (target["id"],))
+
+    return {"ok": True, "message": "Usuario eliminado"}
+
+
+def admin_get_settings():
+    values = core.all_settings()
+    values["limits"] = {"system_ram_gb": core.system_ram_gb(), "cores": os.cpu_count() or 1}
+    return values
+
+
+def admin_save_settings(data):
+    if "signup" in data:
+        core.set_setting("signup", "yes" if data["signup"] in (True, "yes", "true", 1) else "no")
+
+    for key, low, high in (("max_ram_gb", 1, core.system_ram_gb()),
+                           ("max_cpu", 0, os.cpu_count() or 1),
+                           ("max_servers_per_user", 1, 50)):
+        if key in data:
+            try:
+                value = int(data[key])
+            except (TypeError, ValueError):
+                raise FileError("Valor no válido: " + key)
+
+            if not low <= value <= high:
+                raise FileError("%s debe estar entre %d y %d" % (key, low, high))
+
+            core.set_setting(key, value)
+
+    if "public_host" in data:
+        host = str(data["public_host"]).strip()
+
+        if host and not re.match(r"^[A-Za-z0-9.:\[\]-]{1,100}$", host):
+            raise FileError("Dirección pública no válida")
+
+        core.set_setting("public_host", host)
+
+    return {"ok": True, "message": "Ajustes guardados"}
 
 
 def start_uninstall(data):
-    confirm = str(data.get("confirm", "")).strip()
-
-    if confirm != SERVER_NAME:
-        raise FileError("El nombre no coincide")
+    check_double_confirm(data, core.SYSTEM_NAME)
 
     script = os.path.join(INSTALL_DIR, "uninstall.sh")
 
@@ -2132,8 +2574,6 @@ def start_uninstall(data):
     if data.get("purge_backups"):
         args.append("--purge-backups")
 
-    log_action("desinstalar " + " ".join(args[1:]))
-
     # Corre fuera de este servicio, que se va a detener y borrar
     result = subprocess.run(
         ["systemd-run", "--unit", "mcpanel-uninstall-%d" % int(time.time()),
@@ -2146,6 +2586,26 @@ def start_uninstall(data):
         raise FileError("No se pudo iniciar la desinstalación: " + result.stderr.strip(), 500)
 
     return {"ok": True, "message": "Desinstalando"}
+
+
+def user_events(user, since):
+    if since < 0:
+        return {"last": core.last_event_id(), "events": []}
+
+    if user["role"] == "admin":
+        ids = [s.id for s in core.list_servers()]
+    else:
+        ids = [s.id for s in core.servers_of(user["id"])]
+
+    events = core.events_since(since, ids, user["role"] == "admin")
+    names = {s.id: s.name for s in core.list_servers()}
+
+    for event in events:
+        event["server"] = names.get(event["server_id"])
+
+    return {"last": events[-1]["id"] if events else since, "events": events}
+
+
 HTML = r"""
 <!DOCTYPE html>
 <html lang="es">
@@ -2154,7 +2614,7 @@ HTML = r"""
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 
-<title>__SERVER_NAME__</title>
+<title>__SYSTEM_NAME__</title>
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2016%2016%22%20shape-rendering%3D%22crispEdges%22%3E%3Crect%20width%3D%2216%22%20height%3D%2216%22%20rx%3D%223%22%20fill%3D%22%238a5a3b%22%2F%3E%3Cpath%20fill%3D%22%237a4e33%22%20d%3D%22M2%208h2v2H2zM9%209h2v2H9zM5%2012h2v2H5zM12%2012h2v2h-2zM7%207h1v1H7z%22%2F%3E%3Cpath%20fill%3D%22%23936240%22%20d%3D%22M11%207h2v1h-2zM3%2011h1v1H3zM9%2013h2v1H9z%22%2F%3E%3Cpath%20fill%3D%22%235fbf3f%22%20d%3D%22M3%200h10a3%203%200%200%201%203%203v3H0V3a3%203%200%200%201%203-3z%22%2F%3E%3Cpath%20fill%3D%22%234ea634%22%20d%3D%22M0%205h3v2H0zM6%205h2v3H6zM11%205h3v2h-3zM4%202h2v2H4zM10%201h2v2h-2z%22%2F%3E%3Cpath%20fill%3D%22%2362c444%22%20d%3D%22M8%202h2v2H8zM1%203h2v1H1zM13%203h2v1h-2z%22%2F%3E%3C%2Fsvg%3E">
 
 <script>
@@ -3827,6 +4287,333 @@ h1 {
     color: var(--green);
 }
 
+/* ---------- Cuentas y servidores ---------- */
+
+.account-area {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.account-menu {
+    position: relative;
+}
+
+.account-btn {
+    gap: 8px;
+}
+
+.account-avatar {
+    display: inline-grid;
+    place-items: center;
+    width: 22px;
+    height: 22px;
+    border-radius: 6px;
+    background: var(--green-bg);
+    color: var(--green);
+    font-size: 11px;
+    font-weight: 800;
+    flex: none;
+}
+
+.account-dropdown {
+    position: absolute;
+    right: 0;
+    top: calc(100% + 6px);
+    z-index: 40;
+    min-width: 190px;
+    padding: 6px;
+    border-radius: 12px;
+    border: 1px solid var(--border-strong);
+    background: var(--surface);
+    box-shadow: 0 18px 40px rgba(0, 0, 0, .35);
+    display: flex;
+    flex-direction: column;
+    animation: pop .15s ease both;
+}
+
+.account-dropdown[hidden] {
+    display: none;
+}
+
+.account-item {
+    border: 0;
+    background: transparent;
+    color: var(--text);
+    text-align: left;
+    padding: 9px 10px;
+    border-radius: 8px;
+    font: inherit;
+    font-size: 13px;
+    cursor: pointer;
+}
+
+.account-item:hover {
+    background: var(--surface-2);
+}
+
+.srv-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+    gap: 14px;
+}
+
+.srv-card {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    padding: 18px;
+    border-radius: var(--radius);
+    border: 1px solid var(--border);
+    background: var(--surface);
+    cursor: pointer;
+    text-align: left;
+    color: var(--text);
+    font: inherit;
+    transition: transform .18s ease, border-color .18s ease, background-color .25s ease;
+}
+
+.srv-card:hover {
+    transform: translateY(-2px);
+    border-color: var(--border-strong);
+}
+
+.srv-top {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.srv-logo {
+    width: 40px;
+    height: 40px;
+    flex: none;
+}
+
+.srv-titles {
+    flex: 1;
+    min-width: 0;
+}
+
+.srv-name {
+    font-size: 16px;
+    font-weight: 800;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.srv-meta {
+    color: var(--muted);
+    font-size: 12px;
+    margin-top: 2px;
+}
+
+.srv-pill {
+    flex: none;
+}
+
+.srv-middle {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.srv-address {
+    margin: 0;
+    align-self: flex-start;
+}
+
+.srv-players {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-height: 24px;
+    font-size: 12.5px;
+    color: var(--muted);
+}
+
+.srv-players img {
+    width: 22px;
+    height: 22px;
+    border-radius: 5px;
+    image-rendering: pixelated;
+}
+
+.srv-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    margin-top: auto;
+}
+
+.srv-add {
+    align-items: center;
+    justify-content: center;
+    min-height: 180px;
+    border-style: dashed;
+    color: var(--muted);
+    font-weight: 600;
+}
+
+.srv-add:hover {
+    color: var(--text);
+    border-color: var(--green);
+    background: var(--green-bg);
+}
+
+.srv-add-plus {
+    font-size: 34px;
+    line-height: 1;
+    font-weight: 300;
+}
+
+.home-intro {
+    text-align: center;
+    padding: 34px 20px;
+}
+
+.home-intro h3 {
+    margin: 0 0 6px;
+}
+
+.auth-card {
+    max-width: 560px;
+}
+
+.auth-form {
+    text-align: left;
+}
+
+.form-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px 14px;
+    text-align: left;
+}
+
+.field {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    min-width: 0;
+}
+
+.field-label {
+    font-size: 12.5px;
+    font-weight: 600;
+    color: var(--muted);
+}
+
+.field-hint {
+    font-size: 11.5px;
+    color: var(--dim);
+    grid-column: 1 / -1;
+}
+
+.field .field-hint {
+    grid-column: auto;
+}
+
+.field .input {
+    padding: 9px 11px;
+    font-size: 13.5px;
+}
+
+.field-end {
+    justify-content: flex-end;
+    align-items: flex-start;
+}
+
+.form-section {
+    grid-column: 1 / -1;
+    margin-top: 10px;
+    padding-top: 12px;
+    border-top: 1px solid var(--border);
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: .05em;
+    text-transform: uppercase;
+    color: var(--muted);
+}
+
+.link-btn {
+    margin-top: 14px;
+    border: 0;
+    background: transparent;
+    color: var(--green);
+    font: inherit;
+    font-size: 13px;
+    cursor: pointer;
+}
+
+.link-btn:hover {
+    text-decoration: underline;
+}
+
+.acc-who {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.adm-list {
+    display: flex;
+    flex-direction: column;
+}
+
+.adm-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 14px;
+    flex-wrap: wrap;
+    padding: 12px 0;
+    border-top: 1px solid var(--border);
+}
+
+.adm-row:first-child {
+    border-top: 0;
+    padding-top: 0;
+}
+
+.adm-user {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-width: 0;
+}
+
+.adm-name {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-weight: 700;
+    font-size: 14px;
+}
+
+.switch-check input {
+    width: 20px;
+    height: 20px;
+    accent-color: var(--green);
+    cursor: pointer;
+}
+
+.dc-summary {
+    font-weight: 600;
+}
+
+#modalOk:disabled {
+    opacity: .4;
+    cursor: not-allowed;
+}
+
+@media (max-width: 600px) {
+    .form-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
 /* ---------- Animaciones ---------- */
 
 @keyframes rise {
@@ -4701,14 +5488,19 @@ body,
 <div class="brand">
 <div class="logo"><div class="grass"></div><div class="dirt"></div></div>
 <div>
-<h1>__SERVER_NAME__</h1>
-<div class="subtitle" data-i18n="app.subtitle">Admin panel</div>
+<h1>__SYSTEM_NAME__</h1>
+<div id="appSubtitle" class="subtitle">Minecraft</div>
 </div>
 </div>
 
 <div class="header-right">
 
-<nav class="tabs">
+<button id="homeBtn" class="btn btn-ghost btn-small" onclick="go('#/')" hidden>
+<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="width:13px;height:13px"><path d="M15 18l-6-6 6-6"/></svg>
+<span data-i18n="nav.servers">Servers</span>
+</button>
+
+<nav id="serverNav" class="tabs" hidden>
 <button class="tab-btn active" data-tab="panel" onclick="showTab('panel')">
 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg>
 <span data-i18n="tab.panel">Panel</span>
@@ -4726,6 +5518,8 @@ body,
 <span data-i18n="tab.settings">Settings</span>
 </button>
 </nav>
+
+<div id="accountArea" class="account-area"></div>
 
 <div class="lang-switch" data-i18n-title="lang.title">
 <button class="lang-btn" data-lang="en" onclick="setLang('en')">EN</button>
@@ -4746,7 +5540,144 @@ body,
 </header>
 
 
-<section id="tab-panel" class="tab-page">
+<section id="view-home" class="tab-page" hidden>
+
+<div class="card home-intro" id="homeIntro" hidden>
+<h3 data-i18n="home.emptyTitle">No servers yet</h3>
+<p class="hint" data-i18n="home.emptyDesc">Create an account to set up your own Minecraft server.</p>
+</div>
+
+<div id="serverGrid" class="srv-grid"></div>
+
+</section>
+
+
+<section id="view-auth" class="tab-page" hidden>
+<div id="authCard" class="card login auth-card"></div>
+</section>
+
+
+<section id="view-account" class="tab-page" hidden>
+
+<div class="card">
+<div class="card-head">
+<h3 class="card-title"><span data-i18n="nav.account">My account</span></h3>
+</div>
+<div class="acc-who">
+<span id="accountName" class="adm-name"></span>
+<span id="accountRole" class="tag"></span>
+</div>
+</div>
+
+<div class="card">
+<div class="card-head">
+<h3 class="card-title" data-i18n="acc.pwTitle">Change password</h3>
+</div>
+<form class="form-grid" onsubmit="savePassword(event)">
+<label class="field"><span class="field-label" data-i18n="acc.currentPw">Current password</span><input id="pwCurrent" class="input" type="password" autocomplete="current-password"></label>
+<label class="field"><span class="field-label" data-i18n="acc.newPw">New password</span><input id="pwNew" class="input" type="password" autocomplete="new-password"></label>
+<label class="field"><span class="field-label" data-i18n="auth.password2">Repeat password</span><input id="pwNew2" class="input" type="password" autocomplete="new-password"></label>
+<div class="field field-end"><button class="btn btn-start btn-small" type="submit" data-i18n="set.save">Save</button></div>
+</form>
+</div>
+
+<div class="card">
+<div class="set-row">
+<div class="set-text">
+<div class="set-label" data-i18n="ntf.title">Browser notifications</div>
+<div class="set-desc" data-i18n="ntf.desc">Get a notice when your server starts, stops or crashes, and when a backup finishes or fails, even with the tab in the background.</div>
+<div id="notifyState" class="pl-sub"></div>
+</div>
+<button id="notifySwitch" class="switch" type="button" role="switch" aria-checked="false" onclick="toggleNotifications()"><span class="switch-knob"></span></button>
+</div>
+</div>
+
+<div class="card danger-zone">
+<div class="card-head">
+<h3 class="card-title is-red" data-i18n="un.title">Danger zone</h3>
+</div>
+<div class="set-row">
+<div class="set-text">
+<div class="set-label" data-i18n="acc.deleteTitle">Delete my account</div>
+<div class="set-desc" data-i18n="acc.deleteShort">Deletes your account and your servers. You choose whether the worlds and backups are kept.</div>
+</div>
+<button class="btn btn-stop btn-small" onclick="deleteMyAccount()" data-i18n="acc.deleteBtn">Delete account</button>
+</div>
+</div>
+
+</section>
+
+
+<section id="view-admin" class="tab-page" hidden>
+
+<div class="card">
+<div class="card-head">
+<h3 class="card-title" data-i18n="adm.systemTitle">System</h3>
+<button class="btn btn-start btn-small" onclick="saveAdminSettings()" data-i18n="set.save">Save</button>
+</div>
+<div class="set-list">
+<div class="set-row">
+<div class="set-text">
+<div class="set-label" data-i18n="adm.signup">Allow new accounts</div>
+<div class="set-desc" data-i18n="adm.signupDesc">Anyone who can open the panel can create an account and a server within the limits below.</div>
+</div>
+<label class="switch-check"><input id="admSignup" type="checkbox"></label>
+</div>
+<div class="set-row">
+<div class="set-text">
+<div class="set-label" data-i18n="adm.ram">Max RAM per server (GB)</div>
+<div id="admRamHint" class="set-desc"></div>
+</div>
+<input id="admRam" class="input set-input" type="number" min="1">
+</div>
+<div class="set-row">
+<div class="set-text">
+<div class="set-label" data-i18n="adm.cpu">Max CPU cores per server</div>
+<div id="admCpuHint" class="set-desc"></div>
+</div>
+<input id="admCpu" class="input set-input" type="number" min="0">
+</div>
+<div class="set-row">
+<div class="set-text">
+<div class="set-label" data-i18n="adm.servers">Servers per user</div>
+<div class="set-desc" data-i18n="adm.serversDesc">Administrators have no limit.</div>
+</div>
+<input id="admServers" class="input set-input" type="number" min="1" max="50">
+</div>
+<div class="set-row">
+<div class="set-text">
+<div class="set-label" data-i18n="adm.host">Public address</div>
+<div class="set-desc" data-i18n="adm.hostDesc">IP or domain players use; each server adds its own port.</div>
+</div>
+<input id="admHost" class="input set-input wide" placeholder="192.168.1.10">
+</div>
+</div>
+</div>
+
+<div class="card">
+<div class="card-head">
+<h3 class="card-title" data-i18n="adm.usersTitle">Users</h3>
+</div>
+<div id="admUsers" class="adm-list"></div>
+</div>
+
+<div class="card danger-zone">
+<div class="card-head">
+<h3 class="card-title is-red" data-i18n="un.title">Danger zone</h3>
+</div>
+<div class="set-row">
+<div class="set-text">
+<div class="set-label" data-i18n="un.label">Uninstall everything</div>
+<div class="set-desc" data-i18n="un.desc">Removes the panel, its services and every Minecraft container. You can choose to keep the worlds and the backups.</div>
+</div>
+<button class="btn btn-stop btn-small" onclick="uninstallSystem()" data-i18n="un.button">Uninstall</button>
+</div>
+</div>
+
+</section>
+
+
+<section id="tab-panel" class="tab-page" hidden>
 
 <div class="card hero">
 
@@ -4758,7 +5689,7 @@ body,
 </div>
 
 <div class="address">
-<span id="address">__PUBLIC_ADDRESS__</span>
+<span id="address">-</span>
 <button class="icon-btn" data-i18n-title="addr.copy" title="Copy address" onclick="copyAddress()">
 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
 </button>
@@ -4915,7 +5846,7 @@ body,
 </div>
 
 
-<div class="card">
+<div id="consoleCard" class="card">
 
 <!-- En celular se usan estas pestanas; en pantallas anchas se ocultan
      y los dos paneles se muestran lado a lado -->
@@ -5197,16 +6128,24 @@ autocomplete="current-password"
 
 <div id="settingsGroups"></div>
 
+<div class="card">
+<div class="card-head">
+<h3 class="card-title" data-i18n="cfg.title">Server and resources</h3>
+<button class="btn btn-start btn-small" onclick="saveServerConfig()" data-i18n="set.save">Save</button>
+</div>
+<div id="serverConfig"></div>
+</div>
+
 <div class="card danger-zone">
 <div class="card-head">
 <h3 class="card-title is-red" data-i18n="un.title">Danger zone</h3>
 </div>
 <div class="set-row">
 <div class="set-text">
-<div class="set-label" data-i18n="un.label">Uninstall everything</div>
-<div class="set-desc" data-i18n="un.desc">Removes the panel, its services and the Minecraft container. You can choose to keep the world and the backups.</div>
+<div class="set-label" data-i18n="srv.deleteTitle">Delete this server</div>
+<div class="set-desc" data-i18n="srv.deleteShort">Removes the server and its container. You choose whether the world and backups are kept.</div>
 </div>
-<button class="btn btn-stop btn-small" onclick="openUninstall()" data-i18n="un.button">Uninstall</button>
+<button class="btn btn-stop btn-small" onclick="deleteCurrentServer()" data-i18n="srv.deleteBtn">Delete server</button>
 </div>
 </div>
 
@@ -5675,14 +6614,139 @@ const I18N = {
 
         "un.title": "Danger zone",
         "un.label": "Uninstall everything",
-        "un.desc": "Removes the panel, its services and the Minecraft container. You can choose to keep the world and the backups.",
+        "un.desc": "Removes the panel, its services and every Minecraft container. You can choose to keep the worlds and the backups.",
         "un.button": "Uninstall",
-        "un.modalDesc": "The panel, its services, the Minecraft container and the configuration will be removed. By default the world and the backups are kept.",
+        "un.modalDesc": "The panel, its services, every Minecraft container, all accounts and the configuration will be removed. By default the worlds and the backups are kept. Choose what else to delete:",
         "un.purgeData": "Also delete the world and server files",
         "un.purgeBackups": "Also delete all backups",
         "un.typeName": "Type the server name to confirm: {name}",
         "un.doneTitle": "Uninstalling",
-        "un.doneDesc": "The panel is being removed. This page will stop working in a few seconds."
+        "un.doneDesc": "The panel is being removed. This page will stop working in a few seconds.",
+
+        "nav.servers": "Servers",
+        "nav.home": "Servers",
+        "nav.login": "Log in",
+        "nav.signup": "Create account",
+        "nav.setup": "First-time setup",
+        "nav.account": "My account",
+        "nav.admin": "Administration",
+        "nav.myServer": "My server",
+        "home.emptyTitle": "No servers yet",
+        "home.emptyDesc": "Create an account to set up your own Minecraft server.",
+        "auth.login": "Log in",
+        "auth.signup": "Create account",
+        "auth.logout": "Log out",
+        "auth.loginTitle": "Log in",
+        "auth.loginDesc": "Enter your user to manage your server.",
+        "auth.signupTitle": "Create your account",
+        "auth.signupDesc": "Your account comes with your own Minecraft server. Choose its resources below.",
+        "auth.setupTitle": "Welcome to MCServer",
+        "auth.setupDesc": "Create the administrator account. The administrator can see and manage every server and user.",
+        "auth.loginBtn": "Log in",
+        "auth.signupBtn": "Create account and server",
+        "auth.setupBtn": "Create administrator",
+        "auth.username": "User",
+        "auth.password": "Password",
+        "auth.password2": "Repeat password",
+        "auth.userHint": "User: 3 to 24 letters, numbers, dots or dashes. Password: at least 6 characters.",
+        "auth.mismatch": "The passwords do not match.",
+        "auth.noAccount": "No account? Create one",
+        "auth.haveAccount": "Already have an account? Log in",
+        "auth.setupServer": "Also create my Minecraft server now",
+        "auth.needLogin": "Log in as the owner to manage this server.",
+        "form.yourServer": "Your server",
+        "form.serverName": "Server name",
+        "form.serverNamePh": "My server",
+        "form.type": "Type",
+        "form.version": "Minecraft version",
+        "form.versionHint": "LATEST or a version such as 1.20.1. Java is chosen automatically.",
+        "form.ram": "RAM (GB)",
+        "form.ramHint": "Up to {max} GB (this machine has {total} GB).",
+        "form.cpu": "CPU cores",
+        "form.cpuHint": "0 = no limit. This machine has {cores}.",
+        "form.cpuHintMax": "Up to {max} cores.",
+        "type.paper": "Plugins, optimized (Paper)",
+        "type.forge": "Mods (Forge)",
+        "type.fabric": "Mods (Fabric)",
+        "type.vanilla": "Official, no mods (Vanilla)",
+        "srv.by": "by {owner}",
+        "srv.open": "Open",
+        "srv.create": "Create a server",
+        "srv.createBtn": "Create server",
+        "srv.created": "Server created. It is downloading and starting for the first time.",
+        "srv.creating": "Preparing server...",
+        "srv.error": "Error",
+        "srv.notFound": "That server does not exist.",
+        "srv.players.one": "1 player",
+        "srv.players.other": "{n} players",
+        "srv.deleteTitle": "Delete this server",
+        "srv.deleteShort": "Removes the server and its container. You choose whether the world and backups are kept.",
+        "srv.deleteDesc": "The server \"{name}\" and its container will be removed. Choose what else to delete:",
+        "srv.deleteBtn": "Delete server",
+        "srv.deleted": "Server deleted",
+        "cfg.title": "Server and resources",
+        "cfg.automation": "Automation",
+        "cfg.autostop": "Start on connect and stop when nobody plays",
+        "cfg.idle": "Minutes without players before stopping",
+        "cfg.backups": "Daily automatic backup",
+        "cfg.backupTime": "Backup time",
+        "cfg.backupKeep": "Automatic backups to keep",
+        "cfg.rebuildHint": "Changing the type, version, RAM, CPU or name recreates the container (the world is kept). If the server is running it restarts.",
+        "cfg.rebuilding": "Saved. The server is being updated with the new resources.",
+        "acc.pwTitle": "Change password",
+        "acc.currentPw": "Current password",
+        "acc.newPw": "New password",
+        "acc.pwSaved": "Password updated",
+        "acc.deleteTitle": "Delete my account",
+        "acc.deleteShort": "Deletes your account and your servers. You choose whether the worlds and backups are kept.",
+        "acc.deleteDesc": "Your account and all your servers will be removed. Choose what else to delete:",
+        "acc.deleteBtn": "Delete account",
+        "acc.deleted": "Account deleted",
+        "adm.systemTitle": "System",
+        "adm.signup": "Allow new accounts",
+        "adm.signupDesc": "Anyone who can open the panel can create an account and a server within the limits below.",
+        "adm.ram": "Max RAM per server (GB)",
+        "adm.ramHint": "This machine has {total} GB. Administrators can use more.",
+        "adm.cpu": "Max CPU cores per server",
+        "adm.cpuHint": "0 = no limit. This machine has {cores}.",
+        "adm.servers": "Servers per user",
+        "adm.serversDesc": "Administrators have no limit.",
+        "adm.host": "Public address",
+        "adm.hostDesc": "IP or domain players use; each server adds its own port.",
+        "adm.usersTitle": "Users",
+        "adm.noServer": "no server",
+        "adm.makeAdmin": "Make admin",
+        "adm.makeUser": "Remove admin",
+        "adm.resetPw": "Reset password",
+        "adm.deleteTitle": "Delete user",
+        "adm.deleteDesc": "The user \"{name}\" and all their servers will be removed. Choose what else to delete:",
+        "adm.deleted": "User deleted",
+        "role.admin": "Administrator",
+        "role.user": "User",
+        "dc.continue": "Continue",
+        "dc.finalTitle": "This cannot be undone",
+        "dc.final": "This is the last step. After this, what you chose cannot be recovered.",
+        "dc.understand": "I understand this cannot be undone",
+        "dc.typeWord": "Type {word} to confirm:",
+        "un.purgeAllData": "Also delete every world and server file",
+        "un.purgeAllBackups": "Also delete every backup",
+        "ntf.title": "Browser notifications",
+        "ntf.desc": "Get a notice when your server starts, stops or crashes, and when a backup finishes or fails, even with the tab in the background.",
+        "ntf.on": "On for this browser",
+        "ntf.off": "Off",
+        "ntf.denied": "Blocked by the browser. Allow notifications for this site in its settings.",
+        "ntf.unsupported": "This browser does not support notifications.",
+        "ntf.test": "Notifications are on.",
+        "ev2.server_started": "The server is online",
+        "ev2.server_stopped": "The server stopped",
+        "ev2.server_crashed": "The server stopped unexpectedly ({msg})",
+        "ev2.server_error": "The server could not be prepared: {msg}",
+        "ev2.server_deleted": "Server deleted: {msg}",
+        "ev2.backup_ok": "Backup completed ({msg})",
+        "ev2.backup_failed": "Backup failed: {msg}",
+        "ev2.alert_temp": "High CPU temperature: {msg} °C",
+        "ev2.alert_disk": "Disk almost full: {msg}%",
+        "ev2.alert_ram": "Memory almost full: {msg}%"
     },
 
     es: {
@@ -6057,14 +7121,139 @@ const I18N = {
 
         "un.title": "Zona de peligro",
         "un.label": "Desinstalar todo",
-        "un.desc": "Quita el panel, sus servicios y el contenedor de Minecraft. Puedes elegir conservar el mundo y los respaldos.",
+        "un.desc": "Quita el panel, sus servicios y todos los contenedores de Minecraft. Puedes elegir conservar los mundos y los respaldos.",
         "un.button": "Desinstalar",
-        "un.modalDesc": "Se eliminarán el panel, sus servicios, el contenedor de Minecraft y la configuración. Por defecto se conservan el mundo y los respaldos.",
+        "un.modalDesc": "Se eliminarán el panel, sus servicios, todos los contenedores de Minecraft, las cuentas y la configuración. Por defecto se conservan los mundos y los respaldos. Elige qué más borrar:",
         "un.purgeData": "Borrar también el mundo y los archivos del servidor",
         "un.purgeBackups": "Borrar también todos los respaldos",
         "un.typeName": "Escribe el nombre del servidor para confirmar: {name}",
         "un.doneTitle": "Desinstalando",
-        "un.doneDesc": "Se está quitando el panel. Esta página dejará de funcionar en unos segundos."
+        "un.doneDesc": "Se está quitando el panel. Esta página dejará de funcionar en unos segundos.",
+
+        "nav.servers": "Servidores",
+        "nav.home": "Servidores",
+        "nav.login": "Entrar",
+        "nav.signup": "Crear cuenta",
+        "nav.setup": "Configuración inicial",
+        "nav.account": "Mi cuenta",
+        "nav.admin": "Administración",
+        "nav.myServer": "Mi servidor",
+        "home.emptyTitle": "Todavía no hay servidores",
+        "home.emptyDesc": "Crea una cuenta para tener tu propio servidor de Minecraft.",
+        "auth.login": "Entrar",
+        "auth.signup": "Crear cuenta",
+        "auth.logout": "Cerrar sesión",
+        "auth.loginTitle": "Entrar",
+        "auth.loginDesc": "Entra con tu usuario para administrar tu servidor.",
+        "auth.signupTitle": "Crea tu cuenta",
+        "auth.signupDesc": "Tu cuenta incluye tu propio servidor de Minecraft. Elige sus recursos abajo.",
+        "auth.setupTitle": "Bienvenido a MCServer",
+        "auth.setupDesc": "Crea la cuenta de administrador. El administrador puede ver y manejar todos los servidores y usuarios.",
+        "auth.loginBtn": "Entrar",
+        "auth.signupBtn": "Crear cuenta y servidor",
+        "auth.setupBtn": "Crear administrador",
+        "auth.username": "Usuario",
+        "auth.password": "Contraseña",
+        "auth.password2": "Repite la contraseña",
+        "auth.userHint": "Usuario: 3 a 24 letras, números, puntos o guiones. Contraseña: mínimo 6 caracteres.",
+        "auth.mismatch": "Las contraseñas no coinciden.",
+        "auth.noAccount": "¿No tienes cuenta? Créala",
+        "auth.haveAccount": "¿Ya tienes cuenta? Entra",
+        "auth.setupServer": "Crear también mi servidor de Minecraft ahora",
+        "auth.needLogin": "Entra como dueño para administrar este servidor.",
+        "form.yourServer": "Tu servidor",
+        "form.serverName": "Nombre del servidor",
+        "form.serverNamePh": "Mi servidor",
+        "form.type": "Tipo",
+        "form.version": "Versión de Minecraft",
+        "form.versionHint": "LATEST o una versión como 1.20.1. Java se elige solo.",
+        "form.ram": "RAM (GB)",
+        "form.ramHint": "Hasta {max} GB (este equipo tiene {total} GB).",
+        "form.cpu": "Núcleos de CPU",
+        "form.cpuHint": "0 = sin límite. Este equipo tiene {cores}.",
+        "form.cpuHintMax": "Hasta {max} núcleos.",
+        "type.paper": "Plugins, optimizado (Paper)",
+        "type.forge": "Mods (Forge)",
+        "type.fabric": "Mods (Fabric)",
+        "type.vanilla": "Oficial, sin mods (Vanilla)",
+        "srv.by": "de {owner}",
+        "srv.open": "Abrir",
+        "srv.create": "Crear un servidor",
+        "srv.createBtn": "Crear servidor",
+        "srv.created": "Servidor creado. Se está descargando y arrancando por primera vez.",
+        "srv.creating": "Preparando servidor...",
+        "srv.error": "Error",
+        "srv.notFound": "Ese servidor no existe.",
+        "srv.players.one": "1 jugador",
+        "srv.players.other": "{n} jugadores",
+        "srv.deleteTitle": "Borrar este servidor",
+        "srv.deleteShort": "Quita el servidor y su contenedor. Tú eliges si se conservan el mundo y los respaldos.",
+        "srv.deleteDesc": "Se quitará el servidor \"{name}\" y su contenedor. Elige qué más borrar:",
+        "srv.deleteBtn": "Borrar servidor",
+        "srv.deleted": "Servidor borrado",
+        "cfg.title": "Servidor y recursos",
+        "cfg.automation": "Automatización",
+        "cfg.autostop": "Encender al conectarse y apagar cuando nadie juega",
+        "cfg.idle": "Minutos sin jugadores antes de apagar",
+        "cfg.backups": "Respaldo automático diario",
+        "cfg.backupTime": "Hora del respaldo",
+        "cfg.backupKeep": "Respaldos automáticos a conservar",
+        "cfg.rebuildHint": "Cambiar el tipo, la versión, la RAM, la CPU o el nombre recrea el contenedor (el mundo se conserva). Si el servidor está encendido, se reinicia.",
+        "cfg.rebuilding": "Guardado. El servidor se está actualizando con los nuevos recursos.",
+        "acc.pwTitle": "Cambiar contraseña",
+        "acc.currentPw": "Contraseña actual",
+        "acc.newPw": "Nueva contraseña",
+        "acc.pwSaved": "Contraseña actualizada",
+        "acc.deleteTitle": "Borrar mi cuenta",
+        "acc.deleteShort": "Borra tu cuenta y tus servidores. Tú eliges si se conservan los mundos y respaldos.",
+        "acc.deleteDesc": "Se quitarán tu cuenta y todos tus servidores. Elige qué más borrar:",
+        "acc.deleteBtn": "Borrar cuenta",
+        "acc.deleted": "Cuenta borrada",
+        "adm.systemTitle": "Sistema",
+        "adm.signup": "Permitir cuentas nuevas",
+        "adm.signupDesc": "Cualquiera que abra el panel puede crear una cuenta y un servidor dentro de los límites de abajo.",
+        "adm.ram": "RAM máxima por servidor (GB)",
+        "adm.ramHint": "Este equipo tiene {total} GB. Los administradores pueden usar más.",
+        "adm.cpu": "Núcleos de CPU máximos por servidor",
+        "adm.cpuHint": "0 = sin límite. Este equipo tiene {cores}.",
+        "adm.servers": "Servidores por usuario",
+        "adm.serversDesc": "Los administradores no tienen límite.",
+        "adm.host": "Dirección pública",
+        "adm.hostDesc": "IP o dominio que usan los jugadores; cada servidor agrega su puerto.",
+        "adm.usersTitle": "Usuarios",
+        "adm.noServer": "sin servidor",
+        "adm.makeAdmin": "Hacer admin",
+        "adm.makeUser": "Quitar admin",
+        "adm.resetPw": "Restablecer contraseña",
+        "adm.deleteTitle": "Borrar usuario",
+        "adm.deleteDesc": "Se quitarán el usuario \"{name}\" y todos sus servidores. Elige qué más borrar:",
+        "adm.deleted": "Usuario borrado",
+        "role.admin": "Administrador",
+        "role.user": "Usuario",
+        "dc.continue": "Continuar",
+        "dc.finalTitle": "Esto no se puede deshacer",
+        "dc.final": "Es el último paso. Después de esto, lo que elegiste no se podrá recuperar.",
+        "dc.understand": "Entiendo que no se puede deshacer",
+        "dc.typeWord": "Escribe {word} para confirmar:",
+        "un.purgeAllData": "Borrar también todos los mundos y archivos de los servidores",
+        "un.purgeAllBackups": "Borrar también todos los respaldos",
+        "ntf.title": "Notificaciones del navegador",
+        "ntf.desc": "Recibe un aviso cuando tu servidor se encienda, se apague o se caiga, y cuando un respaldo termine o falle, aunque la pestaña esté en segundo plano.",
+        "ntf.on": "Activadas en este navegador",
+        "ntf.off": "Desactivadas",
+        "ntf.denied": "Bloqueadas por el navegador. Permite las notificaciones de este sitio en su configuración.",
+        "ntf.unsupported": "Este navegador no permite notificaciones.",
+        "ntf.test": "Las notificaciones están activadas.",
+        "ev2.server_started": "El servidor está en línea",
+        "ev2.server_stopped": "El servidor se apagó",
+        "ev2.server_crashed": "El servidor se detuvo inesperadamente ({msg})",
+        "ev2.server_error": "No se pudo preparar el servidor: {msg}",
+        "ev2.server_deleted": "Servidor borrado: {msg}",
+        "ev2.backup_ok": "Respaldo completado ({msg})",
+        "ev2.backup_failed": "El respaldo falló: {msg}",
+        "ev2.alert_temp": "Temperatura alta del procesador: {msg} °C",
+        "ev2.alert_disk": "Disco casi lleno: {msg}%",
+        "ev2.alert_ram": "Memoria casi llena: {msg}%"
     }
 };
 
@@ -6122,6 +7311,38 @@ const SERVER_MESSAGES_EN = {
     "Sin cambios": "No changes",
     "No hay cambios que guardar": "No changes to save",
     "No existe server.properties": "server.properties does not exist",
+    "La contraseña debe tener al menos 6 caracteres": "The password must have at least 6 characters",
+    "Usuario no válido: 3 a 24 letras, números, punto, guion o guion bajo": "Invalid user: 3 to 24 letters, numbers, dots, dashes or underscores",
+    "Ese usuario ya existe": "That user already exists",
+    "Falta el nombre del servidor": "The server name is missing",
+    "Tipo de servidor no válido": "Invalid server type",
+    "Versión no válida": "Invalid version",
+    "Ya tienes el máximo de servidores permitidos": "You already have the maximum number of servers",
+    "El sistema ya está configurado": "The system is already set up",
+    "El registro de cuentas está desactivado": "Account sign-up is turned off",
+    "La contraseña actual no es correcta": "The current password is not correct",
+    "Contraseña actualizada": "Password updated",
+    "Servidor actualizado": "Server updated",
+    "Falta confirmar que entiendes que no se puede deshacer": "Confirm that you understand this cannot be undone",
+    "El texto de confirmación no coincide": "The confirmation text does not match",
+    "Eres el único administrador; nombra a otro antes de borrar tu cuenta": "You are the only administrator; make someone else admin before deleting your account",
+    "Cuenta eliminada": "Account deleted",
+    "No existe el usuario": "No such user",
+    "Rol no válido": "Invalid role",
+    "No puedes quitarte el rol de administrador a ti mismo": "You cannot remove your own administrator role",
+    "Usuario actualizado": "User updated",
+    "Para borrar tu propia cuenta usa la página de tu cuenta": "To delete your own account use your account page",
+    "Usuario eliminado": "User deleted",
+    "Dirección pública no válida": "Invalid public address",
+    "No tienes permiso para esto": "You do not have permission for this",
+    "Usuario o contraseña incorrectos": "Wrong user or password",
+    "No existe el servidor": "No such server",
+    "El servidor todavía se está preparando": "The server is still being prepared",
+    "Servidor eliminado": "Server deleted",
+    "Servidor creado": "Server created",
+    "Los minutos sin jugadores deben estar entre 1 y 1440": "Minutes without players must be between 1 and 1440",
+    "Hora de respaldo no válida (HH:MM)": "Invalid backup time (HH:MM)",
+    "Respaldos a conservar: entre 1 y 60": "Backups to keep: between 1 and 60",
     "Movido": "Moved",
     "No hay elementos seleccionados": "No items selected",
     "No se puede mover la carpeta raíz": "The root folder cannot be moved",
@@ -6136,6 +7357,8 @@ const SERVER_MESSAGES_EN = {
 
 const SERVER_PREFIXES_EN = [
     ["No existe: ", "Does not exist: "],
+    ["La RAM debe estar entre 1 y ", "RAM must be between 1 and "],
+    ["Los núcleos deben estar entre 0 y ", "Cores must be between 0 and "],
     ["Valor no válido para ", "Invalid value for "],
     ["Ajuste no permitido: ", "Setting not allowed: "],
     ["No se pudo iniciar el respaldo: ", "The backup could not be started: "],
@@ -6260,6 +7483,15 @@ function setLang(next) {
     if (!$("tab-players").hidden && playersData) {
         renderPlayers();
     }
+
+    renderAccountArea();
+
+    if (currentView === "home") { $("serverGrid").dataset.key = ""; loadServers(); }
+    if (["login", "signup", "setup"].includes(currentView)) renderAuth(currentView);
+    if (currentView === "account") renderAccount();
+    if (currentView === "admin") loadAdmin();
+    if (currentView === "server" && !$("tab-settings").hidden) renderServerConfig();
+    if (currentServerInfo) applyManageUI();
 }
 
 
@@ -6401,14 +7633,36 @@ function showToast(text, tone) {
 
 async function update() {
 
+    if (!currentServer) return;
+
     try {
 
         const response = await fetch("/api?t=" + Date.now());
+
+        if (response.status === 404) {
+            currentServerInfo = null;
+            return;
+        }
+
         const data = await response.json();
+
+        const wasManage = canManageCurrent;
+        currentServerInfo = data.server;
+        canManageCurrent = !!data.can_manage;
+        authorized = canManageCurrent;
+        applyManageUI();
+
+        if (wasManage && !canManageCurrent && activeTab !== "panel") showTab("panel");
 
         let label, tone;
 
-        if (!data.running) {
+        if (data.server && data.server.state === "creating") {
+            label = t("srv.creating");
+            tone = "amber";
+        } else if (data.server && data.server.state === "error") {
+            label = t("srv.error") + (data.server.state_detail ? ": " + data.server.state_detail : "");
+            tone = "red";
+        } else if (!data.running) {
             label = t("status.off");
             tone = "red";
         } else if (data.health !== "healthy") {
@@ -6450,7 +7704,7 @@ async function update() {
 
         $("attempts").textContent = data.attempts;
 
-        $("start").disabled = data.running;
+        $("start").disabled = data.running || (data.server && data.server.state !== "ready");
         $("stop").disabled = !data.running;
         $("restart").disabled = !data.running;
 
@@ -7187,6 +8441,7 @@ const ICONS = {
     edit: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21H6a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h8l6 6v2"/><path d="M14 3v6h6"/><path d="M18.4 13.6a1.7 1.7 0 0 1 2.4 2.4L15.5 21.3l-3.2.8.8-3.2z"/></svg>',
     download: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v12M6 10l6 6 6-6M4 20h16"/></svg>',
     rename: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>',
+    copy: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>',
     message: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 21l1.9-5.4A8 8 0 1 1 21 12z"/></svg>',
     trash: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6M10 11v6M14 11v6"/></svg>'
 };
@@ -7219,6 +8474,14 @@ const TAB_HASH = {
 
 function showTab(name) {
 
+    if (!["panel", "players", "files", "settings"].includes(name)) name = "panel";
+
+    // Las pestanas de administracion son solo del dueno o del admin
+    if (name !== "panel" && !canManageCurrent) {
+        if (!loggedIn()) showToast(t("auth.needLogin"), "amber");
+        name = "panel";
+    }
+
     activeTab = name;
 
     document.querySelectorAll(".tab-btn[data-tab]").forEach(function(btn) {
@@ -7230,14 +8493,31 @@ function showTab(name) {
     });
 
     try {
-        history.replaceState(null, "", TAB_HASH[name] || "#");
+        history.replaceState(null, "", "#/s/" + currentServer + (name === "panel" ? "" : "/" + name));
     } catch (error) {
     }
 
-    // Archivos y Ajustes piden contrasena
-    if (name !== "panel") {
-        openProtected();
-    }
+    if (name !== "panel") enterTab();
+}
+
+
+function applyManageUI() {
+
+    const manage = canManageCurrent;
+    const info = currentServerInfo;
+
+    ["players", "files", "settings"].forEach(function(tab) {
+        document.querySelector('.tab-btn[data-tab="' + tab + '"]').hidden = !manage;
+    });
+
+    $("stop").hidden = !manage;
+    $("restart").hidden = !manage;
+    $("consoleCard").hidden = !manage;
+    $("address").textContent = info ? info.address : "-";
+    $("appSubtitle").textContent = info ? info.name : "";
+    document.title = info ? info.name + " · " + (authState ? authState.system_name : "") : document.title;
+
+    if (consoleLocked === manage) setConsoleLocked(!manage);
 }
 
 
@@ -7673,42 +8953,13 @@ function renderConsoleBars() {
 
 
 async function checkConsoleSession() {
-    try {
-        const response = await fetch("/files/session");
-        const data = await response.json();
-        setConsoleLocked(!data.authorized);
-    } catch (error) {
-        setConsoleLocked(true);
-    }
+    setConsoleLocked(!canManageCurrent);
 }
 
 
 async function unlockConsole(event) {
-
     event.preventDefault();
-
-    try {
-        const response = await fetch("/files/login", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ password: $("consolePassword").value })
-        });
-
-        const data = await response.json();
-
-        if (!data.ok) {
-            showToast(serverText(data.message), "red");
-            $("consolePassword").select();
-            return;
-        }
-
-        setConsoleLocked(false);
-        showToast(t("console.unlocked"), "green");
-        $("command").focus();
-
-    } catch (error) {
-        showToast(t("login.noConnection"), "red");
-    }
+    go("#/login");
 }
 
 
@@ -7716,36 +8967,23 @@ let authorized = false;
 
 
 function showLogin() {
-
+    // Sin permiso: se vuelve al panel publico del servidor
     authorized = false;
     filesReady = false;
     setConsoleLocked(true);
 
-    $("filesArea").hidden = true;
-    $("settingsArea").hidden = true;
-    $("playersArea").hidden = true;
-
-    const card = $("loginCard");
-
-    // Al bloquear desde la consola (pestana Panel) no se muestra el formulario
-    if (activeTab === "panel") {
-        card.hidden = true;
-        return;
-    }
-
-    $("tab-" + activeTab).prepend(card);
-    card.hidden = false;
-    $("password").value = "";
-    $("loginError").textContent = "";
-    setTimeout(function() { $("password").focus(); }, 30);
+    if (currentServer) showTab("panel");
+    else go("#/login");
 }
 
 
 function enterTab() {
 
-    authorized = true;
-    setConsoleLocked(false);
+    authorized = canManageCurrent;
+    setConsoleLocked(!authorized);
     $("loginCard").hidden = true;
+
+    if (!authorized) return;
 
     if (activeTab === "files") {
         filesReady = true;
@@ -7757,6 +8995,7 @@ function enterTab() {
         loadPlayers();
     } else if (activeTab === "settings") {
         $("settingsArea").hidden = false;
+        renderServerConfig();
 
         // No se pisan los cambios sin guardar al volver a la pestana
         if (settingsSaved && Object.keys(settingsChanges()).length) renderSettings();
@@ -7766,61 +9005,13 @@ function enterTab() {
 
 
 async function openProtected() {
-
-    if (authorized) {
-        enterTab();
-        return;
-    }
-
-    try {
-        const response = await fetch("/files/session");
-        const data = await response.json();
-
-        if (!data.authorized) {
-            showLogin();
-            return;
-        }
-
-        enterTab();
-
-    } catch (error) {
-        showLogin();
-    }
+    enterTab();
 }
 
 
 async function login(event) {
-
     event.preventDefault();
-
-    $("loginError").textContent = "";
-
-    try {
-        const response = await fetch("/files/login", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ password: $("password").value })
-        });
-
-        const data = await response.json();
-
-        if (!data.ok) {
-            $("loginError").textContent = serverText(data.message);
-            $("password").select();
-            return;
-        }
-
-        enterTab();
-
-    } catch (error) {
-        $("loginError").textContent = t("login.noConnection");
-    }
-}
-
-
-async function logout() {
-    await fetch("/files/logout", { method: "POST" }).catch(function() {});
-    showLogin();
+    go("#/login");
 }
 
 
@@ -8267,7 +9458,7 @@ function bulkDownload() {
 function downloadZip(paths) {
     showToast(t("fm.preparingZip"), "amber");
     const link = document.createElement("a");
-    link.href = "/files/zip?paths=" + encodeURIComponent(JSON.stringify(paths));
+    link.href = scoped("/files/zip?paths=" + encodeURIComponent(JSON.stringify(paths)));
     link.download = "";
     document.body.append(link);
     link.click();
@@ -8331,7 +9522,7 @@ document.addEventListener("keydown", function(event) {
 
 function downloadFile(path) {
     const link = document.createElement("a");
-    link.href = "/files/download?path=" + encodeURIComponent(path);
+    link.href = scoped("/files/download?path=" + encodeURIComponent(path));
     link.download = "";
     document.body.append(link);
     link.click();
@@ -8769,7 +9960,7 @@ async function loadBackups() {
             actions.append(
                 iconButton("download", t("fm.download"), function() {
                     const link = document.createElement("a");
-                    link.href = "/backups/download?name=" + encodeURIComponent(backup.name);
+                    link.href = scoped("/backups/download?name=" + encodeURIComponent(backup.name));
                     link.download = backup.name;
                     document.body.append(link);
                     link.click();
@@ -9077,63 +10268,6 @@ async function saveSettings() {
     } catch (error) {
         if (error.message !== "auth") showToast(error.message, "red");
         $("settingsSave").disabled = false;
-    }
-}
-
-
-async function openUninstall() {
-
-    const name = document.querySelector("h1").textContent.trim();
-
-    const keepData = el("label", "un-check");
-    const dataBox = el("input");
-    dataBox.type = "checkbox";
-    keepData.append(dataBox, document.createTextNode(" " + t("un.purgeData")));
-
-    const keepBackups = el("label", "un-check");
-    const backupsBox = el("input");
-    backupsBox.type = "checkbox";
-    keepBackups.append(backupsBox, document.createTextNode(" " + t("un.purgeBackups")));
-
-    const input = el("input", "input");
-    input.placeholder = name;
-
-    const ok = await openModal({
-        title: t("un.label"),
-        body: [
-            t("un.modalDesc"),
-            keepData,
-            keepBackups,
-            t("un.typeName", { name: name }),
-            input
-        ],
-        okText: t("un.button"),
-        danger: true,
-        onOk: function() {
-            return input.value.trim() === name ? true : false;
-        }
-    });
-
-    if (!ok) return;
-
-    try {
-        await api("/system/uninstall", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-                confirm: input.value.trim(),
-                purge_data: dataBox.checked,
-                purge_backups: backupsBox.checked
-            })
-        });
-
-        document.body.innerHTML = "";
-        const done = el("div", "un-done");
-        done.append(el("h2", "", t("un.doneTitle")), el("p", "", t("un.doneDesc")));
-        document.body.append(done);
-
-    } catch (error) {
-        if (error.message !== "auth") showToast(error.message, "red");
     }
 }
 
@@ -9700,6 +10834,1149 @@ setInterval(function() {
 
 
 // ============================================================
+// Aplicacion: cuentas, servidores, vistas y enrutador
+// ============================================================
+
+let authState = null;
+let currentServer = null;
+let currentServerInfo = null;
+let canManageCurrent = false;
+let currentView = "home";
+
+// Rutas que dependen del servidor abierto: se les antepone /s/<id>
+const SERVER_SCOPED = /^\/(api|stats|console|chat|files\/|backups|settings|players|command|action\/|server\/)/;
+
+// Rutas que cualquiera puede consultar sin ser dueno
+const SERVER_PUBLIC = /^\/(api|stats|action\/start)/;
+
+
+function scoped(url) {
+    if (typeof url !== "string" || !SERVER_SCOPED.test(url)) return url;
+    return "/s/" + currentServer + url;
+}
+
+
+function blockedRequest(url) {
+    if (typeof url !== "string" || !SERVER_SCOPED.test(url)) return false;
+    if (!currentServer) return true;
+    return !canManageCurrent && !SERVER_PUBLIC.test(url);
+}
+
+
+(function() {
+    const nativeFetch = window.fetch.bind(window);
+
+    window.fetch = function(url, options) {
+        // Sin servidor abierto o sin permiso no se pregunta: evita errores 401 en bucle
+        if (blockedRequest(url)) {
+            return Promise.reject(new Error("blocked"));
+        }
+
+        return nativeFetch(scoped(url), options);
+    };
+
+    const nativeOpen = XMLHttpRequest.prototype.open;
+
+    XMLHttpRequest.prototype.open = function(method, url) {
+        const args = Array.prototype.slice.call(arguments);
+        args[1] = scoped(url);
+        return nativeOpen.apply(this, args);
+    };
+})();
+
+
+function isAdmin() {
+    return !!(authState && authState.user && authState.user.role === "admin");
+}
+
+
+function loggedIn() {
+    return !!(authState && authState.user);
+}
+
+
+async function refreshAuth() {
+    try {
+        const response = await fetch("/auth/state?t=" + Date.now());
+        authState = await response.json();
+    } catch (error) {
+        authState = authState || { user: null, setup: false, signup: false, limits: {}, types: [], my_servers: [] };
+    }
+
+    renderAccountArea();
+    return authState;
+}
+
+
+// ============================================================
+// Enrutador
+// ============================================================
+
+function go(hash) {
+    if (location.hash === hash) route();
+    else location.hash = hash;
+}
+
+
+function parseHash() {
+    const parts = location.hash.replace(/^#\/?/, "").split("/").filter(Boolean);
+
+    if (parts[0] === "s" && /^\d+$/.test(parts[1] || "")) {
+        return { view: "server", id: Number(parts[1]), tab: parts[2] || "panel" };
+    }
+
+    return { view: parts[0] || "home" };
+}
+
+
+async function route() {
+
+    const target = parseHash();
+
+    if (authState && authState.setup && target.view !== "setup") {
+        return go("#/setup");
+    }
+
+    if (target.view === "setup" && authState && !authState.setup) {
+        return go("#/");
+    }
+
+    if ((target.view === "account" || target.view === "admin") && !loggedIn()) {
+        return go("#/login");
+    }
+
+    if (target.view === "admin" && !isAdmin()) {
+        return go("#/");
+    }
+
+    if ((target.view === "login" || target.view === "signup") && loggedIn()) {
+        return go("#/");
+    }
+
+    if (target.view === "server") {
+        await enterServer(target.id, target.tab);
+        return;
+    }
+
+    leaveServer();
+
+    const views = { home: "view-home", login: "view-auth", signup: "view-auth", setup: "view-auth",
+                    account: "view-account", admin: "view-admin" };
+
+    showView(views[target.view] ? target.view : "home");
+}
+
+
+function showView(name) {
+
+    currentView = name;
+    const section = { home: "view-home", login: "view-auth", signup: "view-auth", setup: "view-auth",
+                      account: "view-account", admin: "view-admin" }[name];
+
+    ["view-home", "view-auth", "view-account", "view-admin"].forEach(function(id) {
+        $(id).hidden = id !== section;
+    });
+
+    ["panel", "players", "files", "settings"].forEach(function(tab) {
+        $("tab-" + tab).hidden = true;
+    });
+
+    $("serverNav").hidden = true;
+    $("homeBtn").hidden = name === "home";
+    $("appSubtitle").textContent = t("nav." + (name === "signup" || name === "setup" ? name : name));
+
+    if (name === "home") loadServers();
+    if (name === "login" || name === "signup" || name === "setup") renderAuth(name);
+    if (name === "account") renderAccount();
+    if (name === "admin") loadAdmin();
+
+    window.scrollTo(0, 0);
+}
+
+
+function leaveServer() {
+    currentServer = null;
+    currentServerInfo = null;
+    canManageCurrent = false;
+    authorized = false;
+    filesReady = false;
+}
+
+
+function resetServerCaches() {
+    lastConsole = "";
+    clearedAfter = null;
+    chatKey = "";
+    chatTotal = null;
+    chatUnread = 0;
+    playersData = null;
+    settingsSaved = null;
+    settingsDraft = {};
+    settingsRestart = false;
+    currentPath = "";
+    fmEntries = [];
+    fmSelected.clear();
+    fmClipboard = null;
+    lastStatusTone = null;
+    $("events").dataset.key = "";
+    $("online").dataset.key = "";
+    $("console").textContent = "";
+    $("chat").textContent = "";
+}
+
+
+async function enterServer(id, tab) {
+
+    if (currentServer !== id) {
+        currentServer = id;
+        canManageCurrent = false;
+        currentServerInfo = null;
+        resetServerCaches();
+    }
+
+    ["view-home", "view-auth", "view-account", "view-admin"].forEach(function(view) {
+        $(view).hidden = true;
+    });
+
+    $("serverNav").hidden = false;
+    $("homeBtn").hidden = false;
+    currentView = "server";
+
+    await update();
+
+    if (!currentServerInfo) {
+        showToast(t("srv.notFound"), "red");
+        return go("#/");
+    }
+
+    showTab(tab);
+    updateConsole();
+    updateStats();
+    loadChat();
+}
+
+
+// ============================================================
+// Encabezado: cuenta
+// ============================================================
+
+function renderAccountArea() {
+
+    const box = $("accountArea");
+    box.textContent = "";
+
+    if (!loggedIn()) {
+        const login = el("button", "btn btn-ghost btn-small", t("auth.login"));
+        login.onclick = function() { go("#/login"); };
+        box.append(login);
+
+        if (authState && authState.signup) {
+            const signup = el("button", "btn btn-start btn-small", t("auth.signup"));
+            signup.onclick = function() { go("#/signup"); };
+            box.append(signup);
+        }
+
+        return;
+    }
+
+    const user = authState.user;
+    const wrap = el("div", "account-menu");
+    const button = el("button", "btn btn-ghost btn-small account-btn");
+    button.append(el("span", "account-avatar", user.username.charAt(0).toUpperCase()),
+                  el("span", "", user.username));
+
+    const menu = el("div", "account-dropdown");
+    menu.hidden = true;
+
+    const item = function(label, onClick) {
+        const node = el("button", "account-item", label);
+        node.onclick = function() { menu.hidden = true; onClick(); };
+        menu.append(node);
+    };
+
+    if (authState.my_servers.length) {
+        item(t("nav.myServer"), function() { go("#/s/" + authState.my_servers[0]); });
+    }
+
+    item(t("nav.account"), function() { go("#/account"); });
+
+    if (isAdmin()) item(t("nav.admin"), function() { go("#/admin"); });
+
+    item(t("auth.logout"), logout);
+
+    button.onclick = function(event) {
+        event.stopPropagation();
+        menu.hidden = !menu.hidden;
+    };
+
+    document.addEventListener("click", function() { menu.hidden = true; });
+
+    wrap.append(button, menu);
+    box.append(wrap);
+}
+
+
+async function logout() {
+    await fetch("/auth/logout", { method: "POST" }).catch(function() {});
+    await refreshAuth();
+    leaveServer();
+    go("#/");
+}
+
+
+// ============================================================
+// Inicio: lista de servidores
+// ============================================================
+
+function serverStatus(server) {
+    if (server.state === "creating") return ["amber", t("srv.creating")];
+    if (server.state === "error") return ["red", t("srv.error")];
+    if (!server.running) return ["red", t("status.off")];
+    if (server.health !== "healthy") return ["amber", t("status.starting")];
+    return ["green", t("status.online")];
+}
+
+
+async function loadServers() {
+
+    if (currentView !== "home") return;
+
+    try {
+        const data = await (await fetch("/servers?t=" + Date.now())).json();
+        renderServers(data.servers || []);
+    } catch (error) {
+    }
+}
+
+
+function renderServers(servers) {
+
+    const grid = $("serverGrid");
+    const key = JSON.stringify(servers) + lang + (authState && authState.user ? authState.user.id : "");
+
+    if (grid.dataset.key === key) return;
+    grid.dataset.key = key;
+    grid.textContent = "";
+
+    $("homeIntro").hidden = servers.length > 0;
+
+    servers.forEach(function(server) {
+
+        const [tone, label] = serverStatus(server);
+        const card = el("div", "srv-card");
+
+        const top = el("div", "srv-top");
+        const logo = el("div", "logo srv-logo");
+        logo.append(el("div", "grass"), el("div", "dirt"));
+        const titles = el("div", "srv-titles");
+        titles.append(el("div", "srv-name", server.name),
+                      el("div", "srv-meta", t("srv.by", { owner: server.owner || "-" }) + " · " +
+                          server.type.charAt(0) + server.type.slice(1).toLowerCase() + " " + server.version));
+        const pill = el("span", "pill srv-pill is-" + tone);
+        pill.append(el("span", "dot"), el("span", "", label));
+        top.append(logo, titles, pill);
+
+        const middle = el("div", "srv-middle");
+        const address = el("div", "address srv-address");
+        address.append(el("span", "", server.address));
+        const copy = iconButton("copy", t("addr.copy"), function() {
+            copyText(server.address);
+        });
+        address.append(copy);
+
+        const players = el("div", "srv-players");
+
+        if (server.running && server.players > 0) {
+            server.names.slice(0, 6).forEach(function(name) {
+                const head = document.createElement("img");
+                head.src = "https://mc-heads.net/avatar/" + encodeURIComponent(name) + "/24";
+                head.alt = name;
+                head.title = name;
+                players.append(head);
+            });
+            players.append(el("span", "", tn("srv.players", server.players)));
+        } else {
+            players.append(el("span", "hint", server.running ? t("online.nobody") : ""));
+        }
+
+        middle.append(address, players);
+
+        const actions = el("div", "srv-actions");
+
+        if (server.state === "ready" && !server.running) {
+            const start = el("button", "btn btn-start btn-small", t("btn.start"));
+            start.onclick = async function(event) {
+                event.stopPropagation();
+                start.disabled = true;
+                currentServer = server.id;
+                await action("start");
+                currentServer = null;
+                setTimeout(loadServers, 800);
+            };
+            actions.append(start);
+        }
+
+        const open = el("button", "btn btn-ghost btn-small", t("srv.open"));
+        open.onclick = function() { go("#/s/" + server.id); };
+        actions.append(open);
+
+        card.append(top, middle, actions);
+        card.onclick = function(event) {
+            if (event.target.closest("button")) return;
+            go("#/s/" + server.id);
+        };
+
+        grid.append(card);
+    });
+
+    // Boton para crear servidor si el usuario aun puede
+    if (loggedIn() && authState.my_servers.length < (authState.limits.max_servers || 1)) {
+        const add = el("button", "srv-card srv-add");
+        add.append(el("span", "srv-add-plus", "+"), el("span", "", t("srv.create")));
+        add.onclick = openCreateServer;
+        grid.append(add);
+    }
+}
+
+
+function copyText(text) {
+    const done = function() { showToast(t("addr.copied"), "green"); };
+
+    if (navigator.clipboard && window.isSecureContext) {
+        navigator.clipboard.writeText(text).then(done);
+        return;
+    }
+
+    const area = document.createElement("textarea");
+    area.value = text;
+    document.body.append(area);
+    area.select();
+    try { document.execCommand("copy"); done(); } catch (error) {}
+    area.remove();
+}
+
+
+// ============================================================
+// Formulario de servidor (registro, configuracion inicial, crear)
+// ============================================================
+
+function serverFields(prefix, values) {
+
+    const limits = (authState && authState.limits) || { max_ram_gb: 4, max_cpu: 1, cores: 1 };
+    const v = values || {};
+    const box = el("div", "form-grid");
+
+    const field = function(label, input, hint) {
+        const wrap = el("label", "field");
+        wrap.append(el("span", "field-label", label), input);
+        if (hint) wrap.append(el("span", "field-hint", hint));
+        box.append(wrap);
+        return input;
+    };
+
+    const name = el("input", "input");
+    name.id = prefix + "Name";
+    name.maxLength = 40;
+    name.value = v.name || "";
+    name.placeholder = t("form.serverNamePh");
+    field(t("form.serverName"), name);
+
+    const type = el("select", "input");
+    type.id = prefix + "Type";
+    [["PAPER", "type.paper"], ["FORGE", "type.forge"], ["FABRIC", "type.fabric"], ["VANILLA", "type.vanilla"]]
+        .forEach(function([value, key]) {
+            const option = el("option", "", t(key));
+            option.value = value;
+            type.append(option);
+        });
+    type.value = v.type || "PAPER";
+    field(t("form.type"), type);
+
+    const version = el("input", "input");
+    version.id = prefix + "Version";
+    version.value = v.version || "LATEST";
+    version.placeholder = "LATEST, 1.20.1, 1.21.4...";
+    field(t("form.version"), version, t("form.versionHint"));
+
+    const ram = el("input", "input");
+    ram.id = prefix + "Ram";
+    ram.type = "number";
+    ram.min = 1;
+    ram.max = limits.max_ram_gb;
+    ram.value = Math.min(v.max_gb || Math.min(4, limits.max_ram_gb), limits.max_ram_gb);
+    field(t("form.ram"), ram, t("form.ramHint", { max: limits.max_ram_gb, total: limits.system_ram_gb }));
+
+    const cpu = el("input", "input");
+    cpu.id = prefix + "Cpu";
+    cpu.type = "number";
+    cpu.min = 0;
+    cpu.max = limits.max_cpu;
+    cpu.value = v.cpu !== undefined ? v.cpu : (limits.max_cpu < limits.cores ? limits.max_cpu : 0);
+    field(t("form.cpu"), cpu, limits.max_cpu < limits.cores
+        ? t("form.cpuHintMax", { max: limits.max_cpu })
+        : t("form.cpuHint", { cores: limits.cores }));
+
+    return box;
+}
+
+
+function readServerFields(prefix) {
+    return {
+        name: $(prefix + "Name").value.trim(),
+        type: $(prefix + "Type").value,
+        version: $(prefix + "Version").value.trim() || "LATEST",
+        max_gb: Number($(prefix + "Ram").value),
+        cpu: Number($(prefix + "Cpu").value)
+    };
+}
+
+
+async function postJson(url, body) {
+    const response = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body)
+    });
+
+    const data = await response.json().catch(function() { return { ok: false, message: t("fm.badResponse") }; });
+
+    if (!response.ok || data.ok === false) {
+        throw new Error(serverText(data.message) || "Error");
+    }
+
+    return data;
+}
+
+
+async function openCreateServer() {
+
+    const fields = serverFields("newSrv", { name: authState.user.username });
+
+    const ok = await openModal({
+        title: t("srv.create"),
+        body: [fields],
+        okText: t("srv.createBtn"),
+        onOk: function() { return true; }
+    });
+
+    if (!ok) return;
+
+    try {
+        const data = await postJson("/servers/create", readServerFields("newSrv"));
+        showToast(t("srv.created"), "green");
+        await refreshAuth();
+        go("#/s/" + data.id);
+    } catch (error) {
+        showToast(error.message, "red");
+    }
+}
+
+
+// ============================================================
+// Entrar, registrarse y configuracion inicial
+// ============================================================
+
+function renderAuth(mode) {
+
+    const card = $("authCard");
+    card.textContent = "";
+
+    const icon = el("div", "login-icon");
+    icon.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>';
+
+    card.append(icon, el("h3", "", t("auth." + mode + "Title")), el("p", "hint", t("auth." + mode + "Desc")));
+
+    const form = el("form", "auth-form");
+    const error = el("div", "login-error");
+
+    const input = function(id, type, placeholder, autocomplete) {
+        const node = el("input", "input");
+        node.id = id;
+        node.type = type;
+        node.placeholder = placeholder;
+        node.autocomplete = autocomplete;
+        form.append(node);
+        return node;
+    };
+
+    const user = input("authUser", "text", t("auth.username"), "username");
+    const pass = input("authPass", "password", t("auth.password"), mode === "login" ? "current-password" : "new-password");
+    let pass2 = null;
+
+    if (mode !== "login") {
+        pass2 = input("authPass2", "password", t("auth.password2"), "new-password");
+        form.append(el("div", "field-hint", t("auth.userHint")));
+    }
+
+    let withServer = null;
+
+    if (mode === "signup") {
+        form.append(el("div", "form-section", t("form.yourServer")));
+        form.append(serverFields("authSrv"));
+    }
+
+    if (mode === "setup") {
+        const label = el("label", "un-check");
+        withServer = el("input");
+        withServer.type = "checkbox";
+        withServer.checked = true;
+        label.append(withServer, document.createTextNode(" " + t("auth.setupServer")));
+        form.append(label);
+
+        const fields = serverFields("authSrv");
+        form.append(fields);
+        withServer.onchange = function() { fields.hidden = !withServer.checked; };
+    }
+
+    const submit = el("button", "btn btn-start", t("auth." + mode + "Btn"));
+    submit.type = "submit";
+    submit.style.width = "100%";
+    submit.style.justifyContent = "center";
+    form.append(submit, error);
+
+    form.onsubmit = async function(event) {
+
+        event.preventDefault();
+        error.textContent = "";
+
+        if (pass2 && pass.value !== pass2.value) {
+            error.textContent = t("auth.mismatch");
+            return;
+        }
+
+        const body = { username: user.value.trim(), password: pass.value };
+
+        if (mode === "signup" || (mode === "setup" && withServer.checked)) {
+            body.server = readServerFields("authSrv");
+        }
+
+        submit.disabled = true;
+
+        try {
+            await postJson(mode === "login" ? "/auth/login" : mode === "signup" ? "/auth/signup" : "/auth/setup", body);
+            await refreshAuth();
+            startNotifications();
+
+            if (authState.my_servers.length && mode !== "login") {
+                go("#/s/" + authState.my_servers[0]);
+            } else {
+                go("#/");
+            }
+        } catch (err) {
+            error.textContent = err.message;
+            submit.disabled = false;
+        }
+    };
+
+    card.append(form);
+
+    if (mode === "login" && authState && authState.signup) {
+        const link = el("button", "link-btn", t("auth.noAccount"));
+        link.onclick = function() { go("#/signup"); };
+        card.append(link);
+    }
+
+    if (mode === "signup") {
+        const link = el("button", "link-btn", t("auth.haveAccount"));
+        link.onclick = function() { go("#/login"); };
+        card.append(link);
+    }
+
+    setTimeout(function() { user.focus(); }, 30);
+}
+
+
+// ============================================================
+// Doble confirmacion para borrar
+// ============================================================
+
+async function doubleConfirm(options) {
+
+    // Paso 1: que se va a borrar y opciones
+    const body1 = [options.description];
+    const checks = {};
+
+    (options.choices || []).forEach(function([key, label]) {
+        const wrap = el("label", "un-check");
+        const box = el("input");
+        box.type = "checkbox";
+        checks[key] = box;
+        wrap.append(box, document.createTextNode(" " + label));
+        body1.push(wrap);
+    });
+
+    const first = await openModal({
+        title: options.title,
+        body: body1,
+        okText: t("dc.continue"),
+        danger: true
+    });
+
+    if (!first) return null;
+
+    const picked = {};
+    Object.keys(checks).forEach(function(key) { picked[key] = checks[key].checked; });
+
+    // Paso 2: ultima advertencia, casilla y texto exacto
+    const understandWrap = el("label", "un-check");
+    const understand = el("input");
+    understand.type = "checkbox";
+    understandWrap.append(understand, document.createTextNode(" " + t("dc.understand")));
+
+    const input = el("input", "input");
+    input.placeholder = options.word;
+    input.autocomplete = "off";
+
+    const summary = el("div", "dc-summary is-red", t("dc.final"));
+
+    const promise = openModal({
+        title: t("dc.finalTitle"),
+        body: [summary, understandWrap, t("dc.typeWord", { word: options.word }), input],
+        okText: options.okText,
+        danger: true,
+        onOk: function() {
+            return understand.checked && input.value.trim() === options.word ? true : false;
+        }
+    });
+
+    const ok = $("modalOk");
+    const refresh = function() {
+        ok.disabled = !(understand.checked && input.value.trim() === options.word);
+    };
+
+    understand.onchange = refresh;
+    input.oninput = refresh;
+    refresh();
+
+    const confirmed = await promise;
+    ok.disabled = false;
+
+    if (!confirmed) return null;
+
+    return Object.assign({ understand: true, confirm: input.value.trim() }, picked);
+}
+
+
+// ============================================================
+// Cuenta
+// ============================================================
+
+function renderAccount() {
+
+    const user = authState.user;
+    $("accountName").textContent = user.username;
+    $("accountRole").textContent = t("role." + user.role);
+    $("pwCurrent").value = "";
+    $("pwNew").value = "";
+    $("pwNew2").value = "";
+    renderNotifySwitch();
+}
+
+
+async function savePassword(event) {
+
+    event.preventDefault();
+
+    if ($("pwNew").value !== $("pwNew2").value) {
+        showToast(t("auth.mismatch"), "red");
+        return;
+    }
+
+    try {
+        await postJson("/me/password", { current: $("pwCurrent").value, password: $("pwNew").value });
+        showToast(t("acc.pwSaved"), "green");
+        renderAccount();
+    } catch (error) {
+        showToast(error.message, "red");
+    }
+}
+
+
+async function deleteMyAccount() {
+
+    const result = await doubleConfirm({
+        title: t("acc.deleteTitle"),
+        description: t("acc.deleteDesc"),
+        choices: [["purge_data", t("un.purgeData")], ["purge_backups", t("un.purgeBackups")]],
+        word: authState.user.username,
+        okText: t("acc.deleteBtn")
+    });
+
+    if (!result) return;
+
+    try {
+        await postJson("/me/delete", result);
+        showToast(t("acc.deleted"), "green");
+        await refreshAuth();
+        go("#/");
+    } catch (error) {
+        showToast(error.message, "red");
+    }
+}
+
+
+// ============================================================
+// Ajustes del servidor: recursos, automatizacion y borrar
+// ============================================================
+
+function renderServerConfig() {
+
+    const info = currentServerInfo;
+    const box = $("serverConfig");
+
+    if (!info || !box) return;
+
+    box.textContent = "";
+    box.append(serverFields("cfg", info));
+
+    const auto = el("div", "form-grid");
+
+    const check = function(id, label, checked) {
+        const wrap = el("label", "un-check");
+        const node = el("input");
+        node.type = "checkbox";
+        node.id = id;
+        node.checked = checked;
+        wrap.append(node, document.createTextNode(" " + label));
+        auto.append(wrap);
+        return node;
+    };
+
+    const number = function(id, label, value, min, max) {
+        const wrap = el("label", "field");
+        const node = el("input", "input");
+        node.id = id;
+        node.type = id === "cfgBackupTime" ? "time" : "number";
+        if (min !== undefined) { node.min = min; node.max = max; }
+        node.value = value;
+        wrap.append(el("span", "field-label", label), node);
+        auto.append(wrap);
+        return node;
+    };
+
+    check("cfgAutostop", t("cfg.autostop"), info.autostop);
+    number("cfgIdle", t("cfg.idle"), info.idle_minutes, 1, 1440);
+    check("cfgBackups", t("cfg.backups"), info.backups);
+    number("cfgBackupTime", t("cfg.backupTime"), info.backup_time);
+    number("cfgBackupKeep", t("cfg.backupKeep"), info.backup_keep, 1, 60);
+
+    box.append(el("div", "form-section", t("cfg.automation")), auto);
+    box.append(el("div", "field-hint", t("cfg.rebuildHint")));
+}
+
+
+async function saveServerConfig() {
+
+    const body = Object.assign(readServerFields("cfg"), {
+        autostop: $("cfgAutostop").checked,
+        idle_minutes: Number($("cfgIdle").value),
+        backups: $("cfgBackups").checked,
+        backup_time: $("cfgBackupTime").value,
+        backup_keep: Number($("cfgBackupKeep").value)
+    });
+
+    try {
+        const data = await postJson("/server/update", body);
+        showToast(data.rebuild ? t("cfg.rebuilding") : serverText(data.message), "green");
+        setTimeout(update, 600);
+    } catch (error) {
+        showToast(error.message, "red");
+    }
+}
+
+
+async function deleteCurrentServer() {
+
+    const info = currentServerInfo;
+
+    const result = await doubleConfirm({
+        title: t("srv.deleteTitle"),
+        description: t("srv.deleteDesc", { name: info.name }),
+        choices: [["purge_data", t("un.purgeData")], ["purge_backups", t("un.purgeBackups")]],
+        word: info.name,
+        okText: t("srv.deleteBtn")
+    });
+
+    if (!result) return;
+
+    try {
+        await postJson("/server/delete", result);
+        showToast(t("srv.deleted"), "green");
+        await refreshAuth();
+        leaveServer();
+        go("#/");
+    } catch (error) {
+        showToast(error.message, "red");
+    }
+}
+
+
+// ============================================================
+// Administracion
+// ============================================================
+
+async function loadAdmin() {
+
+    try {
+        const [users, settings] = await Promise.all([
+            fetch("/admin/users?t=" + Date.now()).then(function(r) { return r.json(); }),
+            fetch("/admin/settings?t=" + Date.now()).then(function(r) { return r.json(); })
+        ]);
+
+        renderAdminSettings(settings);
+        renderAdminUsers(users.users || []);
+    } catch (error) {
+        showToast(t("login.noConnection"), "red");
+    }
+}
+
+
+function renderAdminSettings(settings) {
+
+    $("admSignup").checked = settings.signup === "yes";
+    $("admRam").value = settings.max_ram_gb;
+    $("admRam").max = settings.limits.system_ram_gb;
+    $("admRamHint").textContent = t("adm.ramHint", { total: settings.limits.system_ram_gb });
+    $("admCpu").value = settings.max_cpu;
+    $("admCpu").max = settings.limits.cores;
+    $("admCpuHint").textContent = t("adm.cpuHint", { cores: settings.limits.cores });
+    $("admServers").value = settings.max_servers_per_user;
+    $("admHost").value = settings.public_host || "";
+}
+
+
+async function saveAdminSettings() {
+    try {
+        await postJson("/admin/settings", {
+            signup: $("admSignup").checked,
+            max_ram_gb: Number($("admRam").value),
+            max_cpu: Number($("admCpu").value),
+            max_servers_per_user: Number($("admServers").value),
+            public_host: $("admHost").value.trim()
+        });
+        showToast(t("set.saved"), "green");
+        await refreshAuth();
+    } catch (error) {
+        showToast(error.message, "red");
+    }
+}
+
+
+function renderAdminUsers(users) {
+
+    const list = $("admUsers");
+    list.textContent = "";
+
+    users.forEach(function(user) {
+
+        const row = el("div", "adm-row");
+        const who = el("div", "adm-user");
+        who.append(el("span", "account-avatar", user.username.charAt(0).toUpperCase()));
+
+        const text = el("div");
+        const name = el("div", "adm-name", user.username);
+        if (user.role === "admin") name.append(el("span", "tag amber", t("role.admin")));
+        text.append(name, el("div", "pl-sub",
+            (user.servers.length ? user.servers.map(function(s) { return s.name; }).join(", ") : t("adm.noServer"))
+            + " · " + new Date(user.created * 1000).toLocaleDateString(locale())));
+        who.append(text);
+
+        const actions = el("div", "pl-actions");
+        const self = authState.user && authState.user.id === user.id;
+
+        if (!self) {
+            const role = el("button", "btn btn-ghost btn-small",
+                user.role === "admin" ? t("adm.makeUser") : t("adm.makeAdmin"));
+            role.onclick = async function() {
+                try {
+                    await postJson("/admin/users/update", { id: user.id, role: user.role === "admin" ? "user" : "admin" });
+                    loadAdmin();
+                } catch (error) { showToast(error.message, "red"); }
+            };
+            actions.append(role);
+        }
+
+        const reset = el("button", "btn btn-ghost btn-small", t("adm.resetPw"));
+        reset.onclick = async function() {
+            const pw = await askText(t("adm.resetPw") + ": " + user.username, t("acc.newPw"), "", t("set.save"));
+            if (!pw) return;
+            try {
+                await postJson("/admin/users/update", { id: user.id, password: pw });
+                showToast(t("acc.pwSaved"), "green");
+            } catch (error) { showToast(error.message, "red"); }
+        };
+        actions.append(reset);
+
+        if (!self) {
+            const del = el("button", "btn btn-stop btn-small", t("fm.delete"));
+            del.onclick = async function() {
+                const result = await doubleConfirm({
+                    title: t("adm.deleteTitle"),
+                    description: t("adm.deleteDesc", { name: user.username }),
+                    choices: [["purge_data", t("un.purgeData")], ["purge_backups", t("un.purgeBackups")]],
+                    word: user.username,
+                    okText: t("acc.deleteBtn")
+                });
+                if (!result) return;
+                try {
+                    await postJson("/admin/users/delete", Object.assign({ id: user.id }, result));
+                    showToast(t("adm.deleted"), "green");
+                    loadAdmin();
+                } catch (error) { showToast(error.message, "red"); }
+            };
+            actions.append(del);
+        }
+
+        row.append(who, actions);
+        list.append(row);
+    });
+}
+
+
+async function uninstallSystem() {
+
+    const result = await doubleConfirm({
+        title: t("un.label"),
+        description: t("un.modalDesc"),
+        choices: [["purge_data", t("un.purgeAllData")], ["purge_backups", t("un.purgeAllBackups")]],
+        word: authState.system_name,
+        okText: t("un.button")
+    });
+
+    if (!result) return;
+
+    try {
+        await postJson("/admin/uninstall", result);
+        document.body.innerHTML = "";
+        const done = el("div", "un-done");
+        done.append(el("h2", "", t("un.doneTitle")), el("p", "", t("un.doneDesc")));
+        document.body.append(done);
+    } catch (error) {
+        showToast(error.message, "red");
+    }
+}
+
+
+// ============================================================
+// Notificaciones del navegador
+// ============================================================
+
+let notifyLast = -1;
+let notifyTimer = null;
+
+function notifyEnabled() {
+    try {
+        return localStorage.getItem("mc-notify") === "on" && "Notification" in window
+            && Notification.permission === "granted";
+    } catch (error) {
+        return false;
+    }
+}
+
+
+function renderNotifySwitch() {
+
+    const sw = $("notifySwitch");
+    const on = notifyEnabled();
+    sw.classList.toggle("on", on);
+    sw.setAttribute("aria-checked", on ? "true" : "false");
+
+    let state = t("ntf.off");
+
+    if (!("Notification" in window)) state = t("ntf.unsupported");
+    else if (Notification.permission === "denied") state = t("ntf.denied");
+    else if (on) state = t("ntf.on");
+
+    $("notifyState").textContent = state;
+}
+
+
+async function toggleNotifications() {
+
+    if (!("Notification" in window)) return renderNotifySwitch();
+
+    if (notifyEnabled()) {
+        try { localStorage.setItem("mc-notify", "off"); } catch (error) {}
+        return renderNotifySwitch();
+    }
+
+    const permission = Notification.permission === "granted"
+        ? "granted"
+        : await Notification.requestPermission();
+
+    if (permission === "granted") {
+        try { localStorage.setItem("mc-notify", "on"); } catch (error) {}
+        new Notification(authState.system_name, { body: t("ntf.test"), icon: faviconUrl() });
+    }
+
+    renderNotifySwitch();
+}
+
+
+function faviconUrl() {
+    const link = document.querySelector('link[rel="icon"]');
+    return link ? link.href : undefined;
+}
+
+
+function eventText(event) {
+    const vars = { server: event.server || "", msg: event.message || "" };
+    const key = event.kind.split(":")[0];
+    return t("ev2." + key, vars) || event.kind;
+}
+
+
+async function pollNotifications() {
+
+    if (!loggedIn()) return;
+
+    try {
+        const data = await (await fetch("/events?since=" + notifyLast)).json();
+        const first = notifyLast < 0;
+        notifyLast = data.last;
+
+        if (first) return;
+
+        (data.events || []).forEach(function(event) {
+            const text = eventText(event);
+            const title = event.server || authState.system_name;
+
+            if (notifyEnabled() && document.visibilityState !== "visible") {
+                new Notification(title, { body: text, icon: faviconUrl(), tag: "mc-" + event.id });
+            } else {
+                showToast(title + ": " + text,
+                    event.level === "error" ? "red" : event.level === "warning" ? "amber" : "green");
+            }
+        });
+    } catch (error) {
+    }
+}
+
+
+function startNotifications() {
+    notifyLast = -1;
+    pollNotifications();
+
+    if (!notifyTimer) {
+        notifyTimer = setInterval(pollNotifications, 10000);
+    }
+}
+
+
+// ============================================================
+// Arranque
+// ============================================================
+
+async function initApp() {
+    await refreshAuth();
+    startNotifications();
+    window.addEventListener("hashchange", route);
+    await route();
+    setInterval(loadServers, 5000);
+}
+
+
+// ============================================================
 // Chat del servidor
 // ============================================================
 
@@ -9920,22 +12197,10 @@ loadChat();
 applyI18n();
 renderThemeButton();
 
-if (location.hash === "#archivos") {
-    showTab("files");
-} else if (location.hash === "#ajustes") {
-    showTab("settings");
-} else if (location.hash === "#jugadores") {
-    showTab("players");
-}
 
 setInterval(updateStats, 2000);
 setInterval(loadBackups, 4000);
-updateStats();
-checkConsoleSession();
-
-
-update();
-updateConsole();
+initApp();
 
 setInterval(update, 2000);
 setInterval(updateConsole, 1500);
@@ -9946,7 +12211,6 @@ setInterval(renderCountdown, 250);
 </body>
 </html>
 """
-
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -9967,17 +12231,8 @@ class Handler(BaseHTTPRequestHandler):
 
     def send_json(self, data, code=200, headers=None):
 
-        output = json.dumps(
-            data,
-            ensure_ascii=False
-        ).encode("utf-8")
-
-        self.send_body(
-            output,
-            "application/json; charset=utf-8",
-            code,
-            headers
-        )
+        output = json.dumps(data, ensure_ascii=False).encode("utf-8")
+        self.send_body(output, "application/json; charset=utf-8", code, headers)
 
 
     def send_file(self, full, download_name):
@@ -9988,10 +12243,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send_response(200)
         self.send_header("Content-Type", "application/octet-stream")
         self.send_header("Content-Length", str(size))
-        self.send_header(
-            "Content-Disposition",
-            "attachment; filename*=UTF-8''" + quoted
-        )
+        self.send_header("Content-Disposition", "attachment; filename*=UTF-8''" + quoted)
         self.send_header("Cache-Control", "no-store")
         self.end_headers()
 
@@ -10015,10 +12267,6 @@ class Handler(BaseHTTPRequestHandler):
         return morsel.value if morsel else None
 
 
-    def authorized(self):
-        return valid_session(self.session_token())
-
-
     def read_body(self, limit=MAX_EDIT_BYTES + 1024):
         length = int(self.headers.get("Content-Length", "0") or 0)
 
@@ -10028,276 +12276,355 @@ class Handler(BaseHTTPRequestHandler):
         return self.rfile.read(length)
 
 
+    def json_body(self, limit=65536):
+        data = json.loads(self.read_body(limit) or b"{}")
+
+        if not isinstance(data, dict):
+            raise FileError("Petición no válida")
+
+        return data
+
+
+    def login_cookie(self, user):
+        token = create_session(user["id"])
+        return {
+            "Set-Cookie": SESSION_COOKIE + "=" + token + "; Path=/; Max-Age="
+            + str(SESSION_SECONDS) + "; HttpOnly; SameSite=Strict"
+        }
+
+
+    def deny(self, user):
+        if user:
+            self.send_json({"ok": False, "message": "No tienes permiso para esto"}, 403)
+        else:
+            self.send_json({"ok": False, "message": "Sesión no válida"}, 401)
+
+
+    def guarded(self, work):
+        try:
+            work()
+        except FileError as error:
+            self.send_json({"ok": False, "message": str(error)}, error.code)
+        except (BrokenPipeError, ConnectionResetError):
+            pass
+        except json.JSONDecodeError:
+            self.send_json({"ok": False, "message": "Petición no válida"}, 400)
+        except Exception as error:
+            self.send_json({"ok": False, "message": "Error: " + str(error)}, 500)
+
+
+    # ========================================================
+    # GET
+    # ========================================================
+
     def do_GET(self):
 
         path, param = self.route()
+        user = session_user(self.session_token())
+        use_server(None)
 
+        scoped = re.match(r"^/s/(\d+)(/.*)$", path)
+
+        if scoped:
+            self.guarded(lambda: self.server_get(int(scoped.group(1)), scoped.group(2), param, user))
+            return
+
+        if path == "/auth/state":
+            self.send_json(auth_state(user))
+
+        elif path == "/servers":
+            self.send_json({"servers": list_public_servers()})
+
+        elif path == "/stats":
+            if not user:
+                return self.deny(user)
+            self.send_json(system_stats())
+
+        elif path == "/events":
+            if not user:
+                return self.deny(user)
+
+            try:
+                since = int(param("since", "-1"))
+            except ValueError:
+                since = -1
+
+            self.send_json(user_events(user, since))
+
+        elif path in ("/admin/users", "/admin/settings"):
+            if not user or user["role"] != "admin":
+                return self.deny(user)
+
+            self.send_json({"users": admin_users()} if path == "/admin/users" else admin_get_settings())
+
+        else:
+            self.send_body(PAGE, "text/html; charset=utf-8")
+
+
+    def server_get(self, server_id, path, param, user):
+
+        srv = core.get_server(server_id)
+
+        if not srv:
+            raise FileError("No existe el servidor", 404)
+
+        use_server(srv)
+        manage = can_manage(user, srv)
+
+        # Publico: estado y recursos
         if path == "/api":
-            self.send_json(server_data())
+            data = server_data()
+            owner = core.get_user(srv.owner_id) if srv.owner_id else None
+            data["server"] = srv.public(owner["username"] if owner else None)
+            data["can_manage"] = manage
+            self.send_json(data)
             return
 
         if path == "/stats":
             self.send_json(system_stats())
             return
 
+        if not manage:
+            return self.deny(user)
+
         if path == "/chat":
             self.send_json(chat_history())
-            return
 
-        if path == "/console":
-            self.send_body(
-                console().encode("utf-8"),
-                "text/plain; charset=utf-8"
-            )
-            return
+        elif path == "/console":
+            self.send_body(console().encode("utf-8"), "text/plain; charset=utf-8")
 
-        if (path.startswith("/files/") or path.startswith("/backups")
-                or path in ("/settings", "/players")):
-            self.protected_get(path, param)
-            return
+        elif path == "/files/list":
+            self.send_json(list_files(param("path")))
 
-        self.send_body(
-            PAGE,
-            "text/html; charset=utf-8"
-        )
+        elif path == "/files/read":
+            self.send_json(read_text_file(param("path")))
+
+        elif path == "/files/download":
+            full = safe_path(param("path"))
+
+            if not os.path.isfile(full):
+                raise FileError("Solo se pueden descargar archivos")
+
+            self.send_file(full, os.path.basename(full))
+
+        elif path == "/files/zip":
+            paths = json.loads(param("paths", "[]"))
+
+            if not isinstance(paths, list):
+                raise FileError("Petición no válida")
+
+            tmp, name = build_zip([str(p) for p in paths])
+
+            try:
+                self.send_file(tmp, name)
+            finally:
+                os.remove(tmp)
+
+        elif path == "/settings":
+            self.send_json(get_settings())
+
+        elif path == "/players":
+            self.send_json(list_players())
+
+        elif path == "/backups":
+            self.send_json(list_backups())
+
+        elif path == "/backups/download":
+            full = backup_path(param("name"))
+            self.send_file(full, os.path.basename(full))
+
+        else:
+            self.send_json({"ok": False, "message": "No encontrado"}, 404)
 
 
-    def protected_get(self, path, param):
-
-        if path == "/files/session":
-            self.send_json({"authorized": self.authorized()})
-            return
-
-        if not self.authorized():
-            self.send_json({"ok": False, "message": "Sesión no válida"}, 401)
-            return
-
-        try:
-            if path == "/files/list":
-                self.send_json(list_files(param("path")))
-
-            elif path == "/files/read":
-                self.send_json(read_text_file(param("path")))
-
-            elif path == "/files/download":
-                full = safe_path(param("path"))
-
-                if not os.path.isfile(full):
-                    raise FileError("Solo se pueden descargar archivos")
-
-                self.send_file(full, os.path.basename(full))
-
-            elif path == "/files/zip":
-                paths = json.loads(param("paths", "[]"))
-
-                if not isinstance(paths, list):
-                    raise FileError("Petición no válida")
-
-                tmp, name = build_zip([str(p) for p in paths])
-
-                try:
-                    self.send_file(tmp, name)
-                finally:
-                    os.remove(tmp)
-
-            elif path == "/settings":
-                self.send_json(get_settings())
-
-            elif path == "/players":
-                self.send_json(list_players())
-
-            elif path == "/backups":
-                self.send_json(list_backups())
-
-            elif path == "/backups/download":
-                full = backup_path(param("name"))
-                self.send_file(full, os.path.basename(full))
-
-            else:
-                self.send_json({"ok": False, "message": "No encontrado"}, 404)
-
-        except FileError as error:
-            self.send_json({"ok": False, "message": str(error)}, error.code)
-
-        except (BrokenPipeError, ConnectionResetError):
-            pass
-
-        except Exception as error:
-            self.send_json({"ok": False, "message": "Error: " + str(error)}, 500)
-
+    # ========================================================
+    # POST
+    # ========================================================
 
     def do_POST(self):
 
         path, param = self.route()
+        user = session_user(self.session_token())
+        use_server(None)
 
-        if path.startswith("/action/"):
-            self.send_json(docker_action(path.split("/")[-1]))
+        scoped = re.match(r"^/s/(\d+)(/.*)$", path)
+
+        if scoped:
+            self.guarded(lambda: self.server_post(int(scoped.group(1)), scoped.group(2), param, user))
             return
 
-        if path == "/command":
-            if not self.authorized():
-                self.send_json({"ok": False, "message": "Sesión no válida"}, 401)
-                return
-
-            try:
-                body = self.read_body().decode("utf-8", errors="replace")
-                params = urllib.parse.parse_qs(body)
-                command_text = params.get("command", [""])[0]
-                self.send_json(send_command(command_text))
-            except Exception as error:
-                self.send_json({
-                    "ok": False,
-                    "message": "Error procesando comando",
-                    "output": str(error)
-                })
-            return
-
-        if path == "/chat/send":
-            # Sin contrasena a proposito; solo se limita la frecuencia
-            if chat_rate_limited(self.client_address[0]):
-                self.send_json({
-                    "ok": False,
-                    "message": "Estás enviando mensajes muy rápido. Espera un momento."
-                }, 429)
-                return
-
-            try:
-                data = json.loads(self.read_body(4096) or b"{}")
-                self.send_json(send_chat(str(data.get("text", ""))))
-            except Exception as error:
-                self.send_json({"ok": False, "message": "Error: " + str(error)})
-            return
-
-        if path == "/files/login":
-            self.login()
-            return
-
-        if path == "/files/logout":
-            end_session(self.session_token())
-            self.send_json(
-                {"ok": True},
-                headers={
-                    "Set-Cookie": SESSION_COOKIE
-                    + "=; Path=/; Max-Age=0; HttpOnly; SameSite=Strict"
-                }
-            )
-            return
-
-        if (path.startswith("/files/") or path.startswith("/backups")
-                or path in ("/settings", "/players/action", "/system/uninstall")):
-            self.protected_post(path, param)
-            return
-
-        self.send_json({"ok": False, "message": "No encontrado"}, 404)
+        self.guarded(lambda: self.global_post(path, user))
 
 
-    def login(self):
+    def global_post(self, path, user):
 
         ip = self.client_address[0]
 
-        if login_blocked(ip):
-            self.send_json({
-                "ok": False,
-                "message": "Demasiados intentos. Espera 5 minutos."
-            }, 429)
+        if path == "/auth/login":
+            if login_blocked(ip):
+                self.send_json({"ok": False, "message": "Demasiados intentos. Espera 5 minutos."}, 429)
+                return
+
+            data = self.json_body(4096)
+            found = core.find_user(str(data.get("username", "")).strip())
+            ok = bool(found) and core.verify_password(str(data.get("password", "")), found["password"])
+            register_login(ip, ok)
+
+            if not ok:
+                time.sleep(1)
+                self.send_json({"ok": False, "message": "Usuario o contraseña incorrectos"}, 401)
+                return
+
+            self.send_json({"ok": True}, headers=self.login_cookie(found))
+
+        elif path == "/auth/logout":
+            end_session(self.session_token())
+            self.send_json({"ok": True}, headers={
+                "Set-Cookie": SESSION_COOKIE + "=; Path=/; Max-Age=0; HttpOnly; SameSite=Strict"
+            })
+
+        elif path == "/auth/setup":
+            new_user = setup_admin(self.json_body())
+            self.send_json({"ok": True}, headers=self.login_cookie(new_user))
+
+        elif path == "/auth/signup":
+            if login_blocked(ip):
+                self.send_json({"ok": False, "message": "Demasiados intentos. Espera 5 minutos."}, 429)
+                return
+
+            new_user = signup(self.json_body())
+            self.send_json({"ok": True}, headers=self.login_cookie(new_user))
+
+        elif not user:
+            self.deny(user)
+
+        elif path == "/me/password":
+            self.send_json(change_password(user, self.json_body(4096)))
+
+        elif path == "/me/delete":
+            result = delete_account(user, self.json_body(4096))
+            self.send_json(result, headers={
+                "Set-Cookie": SESSION_COOKIE + "=; Path=/; Max-Age=0; HttpOnly; SameSite=Strict"
+            })
+
+        elif path == "/servers/create":
+            srv = create_server_for(user, self.json_body())
+            self.send_json({"ok": True, "id": srv.id, "message": "Servidor creado"})
+
+        elif user["role"] != "admin":
+            self.deny(user)
+
+        elif path == "/admin/users/update":
+            self.send_json(admin_update_user(user, self.json_body(4096)))
+
+        elif path == "/admin/users/delete":
+            self.send_json(admin_delete_user(user, self.json_body(4096)))
+
+        elif path == "/admin/settings":
+            self.send_json(admin_save_settings(self.json_body(4096)))
+
+        elif path == "/admin/uninstall":
+            self.send_json(start_uninstall(self.json_body(4096)))
+
+        else:
+            self.send_json({"ok": False, "message": "No encontrado"}, 404)
+
+
+    def server_post(self, server_id, path, param, user):
+
+        srv = core.get_server(server_id)
+
+        if not srv:
+            raise FileError("No existe el servidor", 404)
+
+        use_server(srv)
+        manage = can_manage(user, srv)
+
+        if path.startswith("/action/"):
+            action = path.split("/")[-1]
+
+            if srv.state != "ready":
+                raise FileError("El servidor todavía se está preparando")
+
+            # Cualquiera puede encender; apagar y reiniciar solo el dueno o el admin
+            if action != "start" and not manage:
+                return self.deny(user)
+
+            if action in ("stop", "restart"):
+                set_stop_hint(srv, "manual" if action == "stop" else "restart")
+                log_server_action(srv, "%s por %s" % (action, user["username"]))
+
+            self.send_json(docker_action(action))
             return
 
-        try:
-            data = json.loads(self.read_body(4096) or b"{}")
-            password = str(data.get("password", ""))
-        except Exception:
-            password = ""
+        if not manage:
+            return self.deny(user)
 
-        ok = bool(password) and check_password(password)
-        register_login(ip, ok)
+        if path == "/command":
+            body = self.read_body().decode("utf-8", errors="replace")
+            command_text = urllib.parse.parse_qs(body).get("command", [""])[0]
+            self.send_json(send_command(command_text))
 
-        if not ok:
-            time.sleep(1)
-            self.send_json({"ok": False, "message": "Contraseña incorrecta"}, 401)
-            return
+        elif path == "/chat/send":
+            if chat_rate_limited(self.client_address[0]):
+                self.send_json({"ok": False, "message": "Estás enviando mensajes muy rápido. Espera un momento."}, 429)
+                return
 
-        token = create_session()
+            self.send_json(send_chat(str(self.json_body(4096).get("text", ""))))
 
-        self.send_json(
-            {"ok": True},
-            headers={
-                "Set-Cookie": SESSION_COOKIE + "=" + token
-                + "; Path=/; Max-Age=" + str(SESSION_SECONDS)
-                + "; HttpOnly; SameSite=Strict"
-            }
-        )
+        elif path == "/server/update":
+            self.send_json(update_server_config(srv, self.json_body(4096), user))
 
+        elif path == "/server/delete":
+            data = self.json_body(4096)
+            check_double_confirm(data, srv.name)
+            delete_server(srv, bool(data.get("purge_data")), bool(data.get("purge_backups")), user)
+            self.send_json({"ok": True, "message": "Servidor eliminado"})
 
-    def protected_post(self, path, param):
+        elif path == "/files/upload":
+            length = int(self.headers.get("Content-Length", "0") or 0)
+            self.send_json(receive_upload(self, param("path"), param("name"), length))
 
-        if not self.authorized():
-            self.send_json({"ok": False, "message": "Sesión no válida"}, 401)
-            return
+        elif path == "/files/write":
+            self.send_json(write_text_file(param("path"), self.read_body().decode("utf-8")))
 
-        try:
-            if path == "/files/upload":
-                length = int(self.headers.get("Content-Length", "0") or 0)
-                self.send_json(
-                    receive_upload(self, param("path"), param("name"), length)
-                )
+        elif path == "/files/mkdir":
+            self.send_json(make_folder(param("path"), param("name")))
 
-            elif path == "/files/write":
-                content = self.read_body().decode("utf-8")
-                self.send_json(write_text_file(param("path"), content))
+        elif path == "/files/rename":
+            self.send_json(rename_item(param("path"), param("name")))
 
-            elif path == "/files/mkdir":
-                self.send_json(make_folder(param("path"), param("name")))
+        elif path == "/files/delete":
+            self.send_json(delete_item(param("path")))
 
-            elif path == "/files/rename":
-                self.send_json(rename_item(param("path"), param("name")))
+        elif path in ("/files/move", "/files/delete-many"):
+            data = self.json_body(MAX_EDIT_BYTES)
+            paths = data.get("paths")
 
-            elif path == "/files/delete":
-                self.send_json(delete_item(param("path")))
+            if not isinstance(paths, list):
+                raise FileError("Petición no válida")
 
-            elif path in ("/files/move", "/files/delete-many"):
-                data = json.loads(self.read_body() or b"{}")
-                paths = data.get("paths")
+            paths = [str(p) for p in paths]
 
-                if not isinstance(paths, list):
-                    raise FileError("Petición no válida")
-
-                paths = [str(p) for p in paths]
-
-                if path == "/files/move":
-                    self.send_json(move_items(paths, str(data.get("dest", ""))))
-                else:
-                    self.send_json(delete_items(paths))
-
-            elif path == "/settings":
-                data = json.loads(self.read_body() or b"{}")
-                self.send_json(save_settings(data.get("values")))
-
-            elif path == "/system/uninstall":
-                data = json.loads(self.read_body(4096) or b"{}")
-                self.send_json(start_uninstall(data if isinstance(data, dict) else {}))
-
-            elif path == "/players/action":
-                data = json.loads(self.read_body() or b"{}")
-
-                if not isinstance(data, dict):
-                    raise FileError("Petición no válida")
-
-                self.send_json(player_action(data))
-
-            elif path == "/backups/create":
-                self.send_json(start_backup())
-
-            elif path == "/backups/delete":
-                self.send_json(delete_backup(param("name")))
-
+            if path == "/files/move":
+                self.send_json(move_items(paths, str(data.get("dest", ""))))
             else:
-                self.send_json({"ok": False, "message": "No encontrado"}, 404)
+                self.send_json(delete_items(paths))
 
-        except FileError as error:
-            self.send_json({"ok": False, "message": str(error)}, error.code)
+        elif path == "/settings":
+            self.send_json(save_settings(self.json_body().get("values")))
 
-        except Exception as error:
-            self.send_json({"ok": False, "message": "Error: " + str(error)}, 500)
+        elif path == "/players/action":
+            self.send_json(player_action(self.json_body()))
+
+        elif path == "/backups/create":
+            self.send_json(start_backup())
+
+        elif path == "/backups/delete":
+            self.send_json(delete_backup(param("name")))
+
+        else:
+            self.send_json({"ok": False, "message": "No encontrado"}, 404)
 
 
     def log_message(self, format, *args):
@@ -10313,8 +12640,7 @@ except Exception:
 # Valores de la instalacion insertados en la pagina una sola vez
 PAGE = (
     HTML
-    .replace("__SERVER_NAME__", html.escape(SERVER_NAME))
-    .replace("__PUBLIC_ADDRESS__", html.escape(PUBLIC_ADDRESS))
+    .replace("__SYSTEM_NAME__", html.escape(core.SYSTEM_NAME))
     .replace("__DEFAULT_LANG__", "es" if DEFAULT_LANG == "es" else "en")
     .replace("__VERSION__", html.escape(APP_VERSION))
 ).encode("utf-8")
@@ -10323,14 +12649,6 @@ threading.Thread(target=stats_loop, daemon=True).start()
 threading.Thread(target=slow_stats_loop, daemon=True).start()
 threading.Thread(target=timeout_loop, daemon=True).start()
 
-server = ThreadingHTTPServer(
-    (BIND, PORT),
-    Handler
-)
-
-print(
-    "Minecraft web panel escuchando en puerto "
-    + str(PORT)
-)
-
+server = ThreadingHTTPServer((BIND, PORT), Handler)
+print("MCServer panel escuchando en %s:%d" % (BIND, PORT), flush=True)
 server.serve_forever()

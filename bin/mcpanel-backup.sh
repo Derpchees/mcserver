@@ -1,42 +1,59 @@
 #!/bin/bash
 #
-# Respaldo del servidor de Minecraft
+# Respaldo de un servidor de Minecraft
 #
-#   mcpanel-backup.sh auto    -> respaldo programado; conserva BACKUP_KEEP_AUTO
-#   mcpanel-backup.sh manual  -> respaldo manual; se conserva hasta borrarlo
+#   mcpanel-backup.sh <servidor> auto    respaldo programado; conserva BACKUP_KEEP_AUTO
+#   mcpanel-backup.sh <servidor> manual  respaldo manual; se conserva hasta borrarlo
 #
 # Si Minecraft esta encendido se pausa el guardado (save-off) mientras
 # se copia, para que el mundo quede consistente.
 #
 
-. /opt/mcpanel/bin/mcpanel-common.sh
+CORE="/opt/mcpanel/panel/mcpanel_core.py"
+SLUG="${1:-}"
+TYPE="${2:-manual}"
 
-TYPE="${1:-manual}"
-KEEP="${BACKUP_KEEP_AUTO:-1}"
-LOG="$LOG_DIR/backup.log"
-LOCK="$RUN_DIR/backup.lock"
-
-if [ "$TYPE" != "auto" ] && [ "$TYPE" != "manual" ]; then
-    echo "Uso: $0 auto|manual" >&2
+if [ -z "$SLUG" ] || { [ "$TYPE" != "auto" ] && [ "$TYPE" != "manual" ]; }; then
+    echo "Uso: $0 <servidor> auto|manual" >&2
     exit 2
 fi
+
+# Rutas del servidor (las escribe el panel)
+ENV_FILE=$(python3 "$CORE" server-env "$SLUG") || { echo "No existe el servidor $SLUG" >&2; exit 1; }
+# shellcheck source=/dev/null
+. "$ENV_FILE"
+
+KEEP="${BACKUP_KEEP_AUTO:-3}"
+LOG="$LOG_DIR/backup.log"
+LOCK="$RUN_DIR/$SLUG.backup.lock"
+
+mkdir -p "$LOG_DIR" "$RUN_DIR"
 
 log() {
     echo "$(date '+%Y-%m-%d %H:%M:%S') | $TYPE | $1" | tee -a "$LOG"
 }
 
-exec 9>"$LOCK"
+event() {
+    python3 "$CORE" event "$SLUG" "$1" "$2" "$3" 2>/dev/null || true
+}
 
-if ! flock -n 9; then
-    log "YA HAY UN RESPALDO EN CURSO | cancelado"
+rcon() {
+    docker exec "$CONTAINER" rcon-cli "$@" >/dev/null 2>&1
+}
+
+fail() {
+    log "ERROR | $1"
+    event backup_failed error "$1"
     exit 1
-fi
+}
+
+exec 9>"$LOCK"
+flock -n 9 || { log "YA HAY UN RESPALDO EN CURSO | cancelado"; exit 1; }
 
 # Si los respaldos van en otro disco y no esta montado, no se escribe
 # en la carpeta vacia del disco del sistema
 if [ -n "$BACKUP_MOUNT" ] && ! mountpoint -q "$BACKUP_MOUNT"; then
-    log "ERROR | $BACKUP_MOUNT no está montado"
-    exit 1
+    fail "$BACKUP_MOUNT no está montado"
 fi
 
 mkdir -p "$BACKUP_DIR"
@@ -47,16 +64,16 @@ tmp="$final.partial"
 saving_off=0
 
 cleanup() {
-    [ "$saving_off" -eq 1 ] && mc_rcon save-on >/dev/null
+    [ "$saving_off" -eq 1 ] && rcon save-on
     rm -f "$tmp"
 }
 
 trap cleanup EXIT
 
-if mc_running; then
-    if mc_rcon save-off >/dev/null; then
+if [ "$(docker inspect -f '{{.State.Running}}' "$CONTAINER" 2>/dev/null)" = "true" ]; then
+    if rcon save-off; then
         saving_off=1
-        mc_rcon save-all flush >/dev/null
+        rcon save-all flush
         sleep 5
         log "INICIANDO | Minecraft encendido, guardado pausado"
     else
@@ -67,12 +84,8 @@ else
 fi
 
 start=$(date +%s)
-
-if command -v pigz >/dev/null; then
-    compressor="pigz -6"
-else
-    compressor="gzip -6"
-fi
+compressor="gzip -6"
+command -v pigz >/dev/null && compressor="pigz -6"
 
 tar \
     --use-compress-program="$compressor" \
@@ -84,21 +97,20 @@ tar \
 status=$?
 
 if [ "$saving_off" -eq 1 ]; then
-    mc_rcon save-on >/dev/null
+    rcon save-on
     saving_off=0
 fi
 
 # tar devuelve 1 si algun archivo cambio durante la copia (logs);
 # el respaldo sigue siendo valido
-if [ "$status" -gt 1 ]; then
-    log "ERROR | tar terminó con código $status"
-    exit 1
-fi
+[ "$status" -gt 1 ] && fail "tar terminó con código $status"
 
 mv -f "$tmp" "$final"
 chown "${MC_UID:-1000}:${MC_GID:-1000}" "$final" 2>/dev/null
 
-log "COMPLETADO | $(basename "$final") | $(du -h "$final" | cut -f1) | $(( $(date +%s) - start ))s"
+size=$(du -h "$final" | cut -f1)
+log "COMPLETADO | $(basename "$final") | $size | $(( $(date +%s) - start ))s"
+event backup_ok success "$size"
 
 # Solo se conservan los KEEP respaldos automaticos mas recientes
 if [ "$TYPE" = "auto" ]; then
