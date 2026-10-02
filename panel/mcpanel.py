@@ -255,7 +255,9 @@ def server_data():
         "last_attempt": attempts[-1] if attempts else "Ninguno",
         "last_start": starts[-1] if starts else "Ninguno",
         "events": recent_events(lines),
-        "autostop": autostop_info()
+        "autostop": autostop_info(),
+        "motd": read_motd(S()),
+        "pending": os.path.exists(pending_path(S()))
     }
 
 
@@ -1748,8 +1750,7 @@ SETTINGS = {
     "white-list": ("bool", None),
     "enforce-whitelist": ("bool", None),
     "online-mode": ("bool", None),
-    "hide-online-players": ("bool", None),
-    "motd": ("text", 59)
+    "hide-online-players": ("bool", None)
 }
 
 # Se aplican al momento por RCON; el resto necesita reiniciar
@@ -2106,7 +2107,8 @@ def user_info(user):
     if not user:
         return None
 
-    return {"id": user["id"], "username": user["username"], "role": user["role"]}
+    return {"id": user["id"], "username": user["username"], "role": user["role"],
+            "owner": user["id"] == core.owner_id()}
 
 
 def limits_for(user, as_admin=False):
@@ -2140,7 +2142,10 @@ def auth_state(user):
         "system_name": core.SYSTEM_NAME,
         "types": list(core.SERVER_TYPES),
         "my_servers": [s.id for s in core.servers_of(user["id"])] if user else [],
-        "default_server": default_server_id()
+        "default_server": default_server_id(),
+        "my_default": personal_default(user),
+        "public_access": settings["public_access"] != "no",
+        "cf_enabled": bool(settings["cf_api_key"])
     }
 
 
@@ -2221,6 +2226,21 @@ def clean_server_fields(data, user, partial=False):
 
         out["cpu"] = cpu
 
+    if "modpack" in data:
+        modpack = str(data.get("modpack") or "").strip().lower()
+
+        if modpack and not CF_SLUG.match(modpack):
+            raise FileError("Modpack no válido")
+
+        out["modpack"] = modpack
+
+    if out.get("type") == "AUTO_CURSEFORGE":
+        if not core.get_setting("cf_api_key"):
+            raise FileError("Falta la clave de API de CurseForge. El administrador la agrega en Administración.")
+
+        if not partial and not out.get("modpack"):
+            raise FileError("Elige un modpack de CurseForge")
+
     if "loader" in data:
         loader = str(data.get("loader") or "").strip()
 
@@ -2284,6 +2304,11 @@ def build_in_background(srv, start, restart_after=False):
 
             core.build_container(srv, start=start or restart_after)
             core.update_server(srv.id, state="ready", state_detail="")
+
+            try:
+                os.remove(pending_path(srv))
+            except OSError:
+                pass
         except Exception as error:
             core.update_server(srv.id, state="error", state_detail=str(error)[:300])
             core.add_event(srv.id, "server_error", "error", str(error)[:200])
@@ -2299,12 +2324,22 @@ def create_server_for(user, data):
 
     type_ = fields.pop("type")
     loader = fields.pop("loader", "")
+    modpack = fields.pop("modpack", "")
 
-    if loader and type_ in LOADER_ENV:
+    if type_ == "AUTO_CURSEFORGE":
+        fields["extra_env"] = json.dumps({"CF_SLUG": modpack})
+        fields["version"] = "LATEST"
+    elif loader and type_ in LOADER_ENV:
         fields["extra_env"] = json.dumps({LOADER_ENV[type_]: loader})
 
     srv = core.create_server_row(owner_id=user["id"], type_=type_, **fields)
     log_server_action(srv, "servidor creado por " + user["username"])
+
+    # Mensaje inicial en la lista multijugador: el nombre del servidor
+    try:
+        set_motd(srv, srv.name, None)
+    except OSError:
+        pass
     build_in_background(srv, start=True)
 
     return srv
@@ -2320,8 +2355,11 @@ def setup_admin(data):
     check_username(username)
     check_new_password(password)
 
+    # El primer usuario es el dueno del sistema
     user_id = core.create_user(username, password, role="admin")
     user = core.get_user(user_id)
+    core.set_setting("owner_id", user_id)
+    core.set_setting("public_access", "no" if data.get("public_access") is False else "yes")
 
     if data.get("server"):
         create_server_for(user, data["server"])
@@ -2394,6 +2432,7 @@ def server_summary(srv, owners):
 
     info = srv.public(owners.get(srv.owner_id))
     info.update({
+        "motd": read_motd(srv),
         "running": bool(state.get("running")),
         "health": state.get("health", "offline"),
         "players": state.get("players", 0),
@@ -2411,19 +2450,28 @@ def list_public_servers():
 def update_server_config(srv, data, user):
     fields = clean_server_fields(data, user, partial=True)
     loader = fields.pop("loader", None)
+    modpack = fields.pop("modpack", None)
     new_type = fields.get("type", srv.type)
 
-    # El cargador vive en las variables extra del contenedor
-    if loader is not None or new_type != srv.type:
+    # El cargador y el modpack viven en las variables extra del contenedor
+    if loader is not None or modpack is not None or new_type != srv.type:
         extra = dict(srv.extra_env)
 
-        for key in LOADER_ENV.values():
+        for key in list(LOADER_ENV.values()) + ["CF_SLUG"]:
             extra.pop(key, None)
 
         value = loader if loader is not None else ""
 
         if value and new_type in LOADER_ENV:
             extra[LOADER_ENV[new_type]] = value
+
+        if new_type == "AUTO_CURSEFORGE":
+            slug = modpack if modpack else srv.extra_env.get("CF_SLUG", "")
+
+            if not slug:
+                raise FileError("Elige un modpack de CurseForge")
+
+            extra["CF_SLUG"] = slug
 
         if extra != srv.extra_env:
             fields["extra_env"] = json.dumps(extra) if extra else ""
@@ -2485,6 +2533,11 @@ def delete_server(srv, purge_data, purge_backups, user):
             pass
 
     core.execute("DELETE FROM servers WHERE id = ?", (srv.id,))
+    core.execute("UPDATE users SET default_server = NULL WHERE default_server = ?", (srv.id,))
+
+    if core.get_setting("default_server") == str(srv.id):
+        core.set_setting("default_server", "")
+
     core.add_event(None, "server_deleted", "info", "%s (%s)" % (srv.name, user["username"]))
 
 
@@ -2499,6 +2552,9 @@ def check_double_confirm(data, expected):
 
 def delete_account(user, data):
     check_double_confirm(data, user["username"])
+
+    if is_owner(user):
+        raise FileError("El dueño del sistema no puede borrar su cuenta; para quitar todo usa Desinstalar")
 
     if user["role"] == "admin":
         admins = core.query("SELECT COUNT(*) AS n FROM users WHERE role = 'admin'", one=True)["n"]
@@ -2525,10 +2581,13 @@ def admin_users():
     for srv in core.list_servers():
         servers.setdefault(srv.owner_id, []).append({"id": srv.id, "name": srv.name})
 
+    owner = core.owner_id()
+
     return [{
         "id": row["id"],
         "username": row["username"],
         "role": row["role"],
+        "owner": row["id"] == owner,
         "created": row["created"],
         "servers": servers.get(row["id"], [])
     } for row in core.query("SELECT * FROM users ORDER BY id")]
@@ -2540,7 +2599,13 @@ def admin_update_user(admin, data):
     if not target:
         raise FileError("No existe el usuario", 404)
 
+    if is_owner(target) and target["id"] != admin["id"]:
+        raise FileError("Nadie puede cambiar la cuenta del dueño del sistema")
+
     if "role" in data:
+        if not is_owner(admin):
+            raise FileError("Solo el dueño del sistema puede cambiar roles")
+
         role = data["role"]
 
         if role not in ("admin", "user"):
@@ -2569,6 +2634,9 @@ def admin_delete_user(admin, data):
     if target["id"] == admin["id"]:
         raise FileError("Para borrar tu propia cuenta usa la página de tu cuenta")
 
+    if is_owner(target):
+        raise FileError("Nadie puede borrar la cuenta del dueño del sistema")
+
     check_double_confirm(data, target["username"])
 
     for srv in core.servers_of(target["id"]):
@@ -2582,6 +2650,9 @@ def admin_delete_user(admin, data):
 
 def admin_get_settings():
     values = core.all_settings()
+
+    # La clave no se devuelve; solo si existe
+    values["cf_api_key_set"] = bool(values.pop("cf_api_key", ""))
     values["limits"] = {"system_ram_gb": core.system_ram_gb(), "cores": os.cpu_count() or 1}
     return values
 
@@ -2603,6 +2674,17 @@ def admin_save_settings(data):
                 raise FileError("%s debe estar entre %d y %d" % (key, low, high))
 
             core.set_setting(key, value)
+
+    if "public_access" in data:
+        core.set_setting("public_access", "yes" if data["public_access"] in (True, "yes", "true", 1) else "no")
+
+    if "cf_api_key" in data:
+        key = str(data["cf_api_key"] or "").strip()
+
+        if key and not re.match(r"^[\x21-\x7e]{10,200}$", key):
+            raise FileError("La clave de CurseForge no parece válida")
+
+        core.set_setting("cf_api_key", key)
 
     if "default_server" in data:
         value = str(data["default_server"] or "").strip()
@@ -2678,6 +2760,7 @@ def user_events(user, since):
 # ============================================================
 
 import urllib.request
+import urllib.error
 import xml.etree.ElementTree as ET
 
 VERSIONS_TTL = 6 * 3600
@@ -2865,6 +2948,323 @@ def available_versions(type_, mc=""):
     except Exception as error:
         # Sin internet o la fuente cambio: el panel deja escribir la version a mano
         return {"versions": [], "loaders": [], "error": str(error)[:120]}
+
+
+
+
+# ============================================================
+# Acceso publico, dueno del sistema y favorito personal
+# ============================================================
+
+def public_ok(user):
+    # Sin sesion solo se puede ver y encender si el admin lo permite
+    return bool(user) or core.get_setting("public_access") != "no"
+
+
+def is_owner(user):
+    return bool(user) and user["id"] == core.owner_id()
+
+
+def personal_default(user):
+    if user and user["default_server"] and core.get_server(user["default_server"]):
+        return user["default_server"]
+
+    return None
+
+
+def set_personal_default(user, data):
+    value = str(data.get("server") or "").strip()
+
+    if value and not (value.isdigit() and core.get_server(int(value))):
+        raise FileError("Ese servidor no existe")
+
+    core.execute("UPDATE users SET default_server = ? WHERE id = ?",
+                 (int(value) if value else None, user["id"]))
+
+    return {"ok": True}
+
+
+# ============================================================
+# Mensaje del servidor (MOTD)
+# ============================================================
+
+MOTD_MAX = 200
+
+
+def read_motd(srv):
+    for line in read_lines(os.path.join(srv.data_dir, "server.properties")):
+        if line.startswith("motd="):
+            return unescape_property(line[5:])
+
+    return ""
+
+
+def set_motd(srv, text, user):
+    text = str(text or "").replace("\r", "")
+    lines = [re.sub(r"[\x00-\x1f\x7f]", "", line) for line in text.split("\n")][:2]
+    text = "\n".join(lines).rstrip("\n")
+
+    if len(text) > MOTD_MAX:
+        raise FileError("El mensaje es demasiado largo (máx. %d caracteres)" % MOTD_MAX)
+
+    srv.ensure_dirs()
+    path = os.path.join(srv.data_dir, "server.properties")
+    entry = "motd=" + escape_property(text)
+    out = []
+    found = False
+
+    if os.path.isfile(path):
+        with open(path, "r", encoding="utf-8", errors="replace") as f:
+            for line in f.read().splitlines():
+                if line.startswith("motd="):
+                    out.append(entry)
+                    found = True
+                else:
+                    out.append(line)
+
+    if not found:
+        out.append(entry)
+
+    tmp = path + ".tmp-panel"
+
+    with open(tmp, "w", encoding="utf-8") as f:
+        f.write("\n".join(out) + "\n")
+
+    os.chmod(tmp, 0o664)
+    give_to_server(tmp)
+    os.replace(tmp, path)
+
+    # Contenedores creados con MOTD fijo lo reescribirian al arrancar
+    env = core.docker("inspect", "-f", "{{range .Config.Env}}{{println .}}{{end}}", srv.container).stdout
+
+    if any(line.startswith("MOTD=") for line in env.splitlines()):
+        use_server(srv)
+        request_rebuild(srv)
+
+    if user:
+        log_server_action(srv, "mensaje del servidor cambiado por " + user["username"])
+
+    return {"ok": True, "message": "Mensaje guardado",
+            "running": core.container_state(srv)[0] == "running"}
+
+
+# ============================================================
+# Recreacion pendiente del contenedor
+# ============================================================
+
+def pending_path(srv):
+    return os.path.join(srv.state_dir, "pending_rebuild")
+
+
+def request_rebuild(srv):
+    # Apagado: se recrea ya. Encendido: queda pendiente hasta que el
+    # dueno lo aplique, para no sacar a los jugadores
+    if core.container_state(srv)[0] == "running":
+        os.makedirs(srv.state_dir, exist_ok=True)
+        open(pending_path(srv), "w").close()
+        return "pending"
+
+    core.update_server(srv.id, state="creating", state_detail="rebuild")
+    build_in_background(srv, start=False)
+    return "applied"
+
+
+def apply_pending(srv, user):
+    running = core.container_state(srv)[0] == "running"
+    core.update_server(srv.id, state="creating", state_detail="rebuild")
+    build_in_background(srv, start=False, restart_after=running)
+    log_server_action(srv, "cambios aplicados por " + user["username"])
+    return {"ok": True, "message": "Aplicando cambios"}
+
+
+# ============================================================
+# CurseForge: mods, plugins y modpacks
+# ============================================================
+
+CF_API = "https://api.curseforge.com/v1"
+CF_GAME = 432
+CF_CLASS = {"mods": 6, "plugins": 5, "modpacks": 4471}
+CF_LOADER = {"FORGE": 1, "FABRIC": 4, "NEOFORGE": 6}
+MOD_KIND = {"FORGE": "mods", "NEOFORGE": "mods", "FABRIC": "mods", "PAPER": "plugins"}
+CF_SLUG = re.compile(r"^[a-z0-9][a-z0-9_-]{0,100}$")
+
+
+def cf_key():
+    return core.get_setting("cf_api_key")
+
+
+def cf_get(path, params):
+    key = cf_key()
+
+    if not key:
+        raise FileError("Falta la clave de API de CurseForge. El administrador la agrega en Administración.")
+
+    request = urllib.request.Request(
+        CF_API + path + "?" + urllib.parse.urlencode(params),
+        headers={"x-api-key": key, "Accept": "application/json", "User-Agent": "MCServer-panel"}
+    )
+
+    try:
+        with urllib.request.urlopen(request, timeout=15) as response:
+            return json.loads(response.read())
+    except urllib.error.HTTPError as error:
+        if error.code in (401, 403):
+            raise FileError("CurseForge rechazó la clave de API")
+        raise FileError("CurseForge respondió con un error (%d)" % error.code)
+    except (urllib.error.URLError, OSError, ValueError):
+        raise FileError("No se pudo conectar con CurseForge")
+
+
+def cf_environment(mod):
+    # Los archivos recientes de CurseForge indican "Server" o "Client"
+    flags = set()
+
+    for item in mod.get("latestFiles", []):
+        flags |= set(item.get("gameVersions", []))
+
+    if "Server" in flags:
+        return "server"
+
+    if "Client" in flags:
+        return "client"
+
+    return "unknown"
+
+
+def cf_search(kind, query, version="", type_=""):
+    if kind not in CF_CLASS:
+        raise FileError("Búsqueda no válida")
+
+    params = {
+        "gameId": CF_GAME,
+        "classId": CF_CLASS[kind],
+        "searchFilter": str(query or "")[:80],
+        "sortField": 2,
+        "sortOrder": "desc",
+        "pageSize": 30
+    }
+
+    if version and version != "LATEST" and kind != "modpacks":
+        params["gameVersion"] = version
+
+    if kind == "mods" and type_ in CF_LOADER:
+        params["modLoaderType"] = CF_LOADER[type_]
+
+    results = []
+
+    for mod in cf_get("/mods/search", params).get("data", []):
+        env = cf_environment(mod) if kind == "mods" else "server"
+
+        # Solo mods que funcionan en el servidor
+        if env == "client":
+            continue
+
+        results.append({
+            "id": mod.get("id"),
+            "slug": mod.get("slug", ""),
+            "name": mod.get("name", ""),
+            "summary": (mod.get("summary") or "")[:200],
+            "downloads": mod.get("downloadCount", 0),
+            "icon": (mod.get("logo") or {}).get("thumbnailUrl", ""),
+            "author": ", ".join(a.get("name", "") for a in mod.get("authors", [])[:2]),
+            "url": (mod.get("links") or {}).get("websiteUrl", ""),
+            "env": env
+        })
+
+    return {"results": results}
+
+
+def mods_meta_path():
+    return os.path.join(S().state_dir, "mods.json")
+
+
+def mod_slugs():
+    return [x for x in S().extra_env.get("CURSEFORGE_FILES", "").split(",") if x]
+
+
+def mods_state():
+    kind = MOD_KIND.get(S().type)
+    folder = os.path.join(S().data_dir, kind or "mods")
+    files = []
+
+    if os.path.isdir(folder):
+        for entry in sorted(os.scandir(folder), key=lambda e: e.name.lower()):
+            if entry.is_file() and entry.name.endswith(".jar"):
+                files.append({"name": entry.name, "size": entry.stat().st_size})
+
+    meta = read_json_file(mods_meta_path(), {})
+
+    return {
+        "kind": kind,
+        "type": S().type,
+        "version": S().version,
+        "folder": kind or "mods",
+        "cf": bool(cf_key()),
+        "projects": [dict(meta.get(slug, {}), slug=slug) for slug in mod_slugs()],
+        "files": files,
+        "pending": os.path.exists(pending_path(S())),
+        "running": core.container_state(S())[0] == "running"
+    }
+
+
+def set_mod_slugs(slugs):
+    extra = dict(S().extra_env)
+
+    if slugs:
+        extra["CURSEFORGE_FILES"] = ",".join(slugs)
+    else:
+        extra.pop("CURSEFORGE_FILES", None)
+
+    core.update_server(S().id, extra_env=json.dumps(extra) if extra else "")
+    fresh = core.get_server(S().id)
+    use_server(fresh)
+    return request_rebuild(fresh)
+
+
+def add_mod(data, user):
+    if S().type not in MOD_KIND:
+        raise FileError("Este tipo de servidor no admite mods ni plugins")
+
+    slug = str(data.get("slug", "")).strip().lower()
+
+    if not CF_SLUG.match(slug):
+        raise FileError("Proyecto no válido")
+
+    slugs = mod_slugs()
+
+    if slug in slugs:
+        return {"ok": True, "message": "Ya estaba agregado", "applied": "none"}
+
+    meta = read_json_file(mods_meta_path(), {})
+    meta[slug] = {
+        "name": str(data.get("name") or slug)[:80],
+        "icon": str(data.get("icon") or "")[:400],
+        "env": str(data.get("env") or "")[:10]
+    }
+    write_json_file(mods_meta_path(), meta)
+
+    applied = set_mod_slugs(slugs + [slug])
+    log_server_action(S(), "%s agregó %s" % (user["username"], slug))
+
+    return {"ok": True, "message": "Agregado", "applied": applied}
+
+
+def remove_mod(data, user):
+    slug = str(data.get("slug", "")).strip().lower()
+    slugs = mod_slugs()
+
+    if slug not in slugs:
+        raise FileError("Ese proyecto no está agregado", 404)
+
+    meta = read_json_file(mods_meta_path(), {})
+    meta.pop(slug, None)
+    write_json_file(mods_meta_path(), meta)
+
+    applied = set_mod_slugs([s for s in slugs if s != slug])
+    log_server_action(S(), "%s quitó %s" % (user["username"], slug))
+
+    return {"ok": True, "message": "Quitado", "applied": applied}
+
 
 
 HTML = r"""
@@ -4877,6 +5277,212 @@ h1 {
     }
 }
 
+.star-btn {
+    width: 40px;
+    height: 40px;
+    border-radius: 10px;
+    border: 1px solid var(--border-strong);
+    background: var(--surface-2);
+    color: var(--muted);
+    transition: color .15s ease, background-color .15s ease, transform .1s ease;
+}
+
+.star-btn svg {
+    width: 18px;
+    height: 18px;
+    fill: none;
+}
+
+.star-btn:hover:not(:disabled) {
+    color: var(--amber);
+}
+
+.star-btn:active:not(:disabled) {
+    transform: scale(.92);
+}
+
+.star-btn.on {
+    color: var(--amber);
+    border-color: color-mix(in srgb, var(--amber) 45%, transparent);
+    background: var(--amber-bg);
+}
+
+.star-btn.on svg {
+    fill: currentColor;
+}
+
+.star-btn:disabled {
+    opacity: 1;
+    cursor: default;
+}
+
+.srv-star {
+    display: inline-grid;
+    vertical-align: -2px;
+    margin-right: 6px;
+    color: var(--amber);
+}
+
+.srv-star svg {
+    width: 15px;
+    height: 15px;
+    fill: currentColor;
+}
+
+/* ---------- MOTD ---------- */
+
+.motd {
+    font-family: "Minecraftia", var(--mono);
+    font-size: 13px;
+    line-height: 1.5;
+    color: #AAAAAA;
+    background: #141414;
+    border: 1px solid #2a2a2a;
+    border-radius: 8px;
+    padding: 8px 12px;
+    text-shadow: 1px 1px 0 rgba(0, 0, 0, .55);
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+}
+
+.motd-box {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    margin-top: 10px;
+    max-width: 520px;
+}
+
+.motd-box .motd {
+    flex: 1;
+    min-width: 0;
+}
+
+.motd-empty {
+    color: #666;
+    font-style: italic;
+}
+
+.mc-obf {
+    filter: blur(1.5px);
+}
+
+.motd-title {
+    color: #FFFFFF;
+    margin-bottom: 2px;
+}
+
+.motd-input {
+    font-family: var(--mono);
+    font-size: 13px;
+    resize: none;
+}
+
+.motd-palette {
+    display: grid;
+    grid-template-columns: repeat(8, 1fr);
+    gap: 6px;
+}
+
+.motd-swatch {
+    height: 26px;
+    border-radius: 6px;
+    border: 1px solid var(--border-strong);
+    cursor: pointer;
+    transition: transform .1s ease;
+}
+
+.motd-swatch:hover {
+    transform: scale(1.08);
+}
+
+.motd-formats {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+.motd-fmt {
+    min-width: 36px;
+    justify-content: center;
+}
+
+.srv-motd {
+    font-size: 12px;
+    padding: 6px 10px;
+}
+
+/* ---------- Mods ---------- */
+
+.mods-hint {
+    margin: 8px 0 12px;
+}
+
+.mod-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.mod-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 12px;
+    border-radius: 10px;
+    border: 1px solid var(--border);
+    background: var(--surface-2);
+}
+
+.mod-icon {
+    width: 40px;
+    height: 40px;
+    flex: none;
+    border-radius: 8px;
+    overflow: hidden;
+    background: var(--bg);
+}
+
+.mod-icon img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.mod-info {
+    flex: 1;
+    min-width: 0;
+}
+
+.mod-name {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    font-weight: 700;
+    font-size: 14px;
+}
+
+.mod-summary {
+    color: var(--muted);
+    font-size: 12.5px;
+    margin-top: 2px;
+}
+
+.mod-file {
+    grid-template-columns: 24px minmax(0, 1fr) 100px auto;
+}
+
+.modpack-box {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+#homeBtn.active {
+    box-shadow: none;
+}
+
 /* ---------- Animaciones ---------- */
 
 @keyframes rise {
@@ -5772,6 +6378,10 @@ body,
 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg>
 <span data-i18n="tab.players">Players</span>
 </button>
+<button class="tab-btn" data-tab="mods" onclick="showTab('mods')">
+<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><path d="M3.3 7 12 12l8.7-5M12 22V12"/></svg>
+<span id="modsTabLabel" data-i18n="mods.tab">Mods</span>
+</button>
 <button class="tab-btn" data-tab="files" onclick="showTab('files')">
 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>
 <span data-i18n="tab.files">Files</span>
@@ -5888,6 +6498,21 @@ body,
 </div>
 <div class="set-row">
 <div class="set-text">
+<div class="set-label" data-i18n="adm.public">Visitors can see and start servers</div>
+<div class="set-desc" data-i18n="adm.publicDesc">People without an account see the server list and status and can start servers. Turn it off to require logging in for everything.</div>
+</div>
+<label class="switch-check"><input id="admPublic" type="checkbox"></label>
+</div>
+<div class="set-row">
+<div class="set-text">
+<div class="set-label" data-i18n="adm.cf">CurseForge API key</div>
+<div class="set-desc" data-i18n="adm.cfDesc">Needed for mods, plugins and modpacks from CurseForge. Get one for free at console.curseforge.com.</div>
+<div id="admCfState" class="pl-sub"></div>
+</div>
+<input id="admCf" class="input set-input wide" type="password" autocomplete="off">
+</div>
+<div class="set-row">
+<div class="set-text">
 <div class="set-label" data-i18n="adm.ram">Max RAM per server (GB)</div>
 <div id="admRamHint" class="set-desc"></div>
 </div>
@@ -5910,7 +6535,7 @@ body,
 <div class="set-row">
 <div class="set-text">
 <div class="set-label" data-i18n="adm.default">Default server</div>
-<div class="set-desc" data-i18n="adm.defaultDesc">The panel opens directly on this server. The Servers button still shows the full list.</div>
+<div class="set-desc" data-i18n="adm.defaultDesc">Opens for people who have not starred a server of their own. Each person can pick theirs with the star next to Start.</div>
 </div>
 <select id="admDefault" class="input set-input wide"></select>
 </div>
@@ -5931,7 +6556,7 @@ body,
 <div id="admUsers" class="adm-list"></div>
 </div>
 
-<div class="card danger-zone">
+<div id="admDanger" class="card danger-zone">
 <div class="card-head">
 <h3 class="card-title is-red" data-i18n="un.title">Danger zone</h3>
 </div>
@@ -5965,10 +6590,21 @@ body,
 </button>
 </div>
 
+<div class="motd-box">
+<div id="motdView" class="motd"></div>
+<button id="motdEdit" class="icon-btn motd-edit" data-i18n-title="motd.edit" title="Edit server message" onclick="editMotd()" hidden>
+<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>
+</button>
+</div>
+
 </div>
 
 
 <div class="buttons">
+
+<button id="defaultStar" class="icon-btn star-btn" onclick="toggleDefaultServer()" hidden>
+<svg viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M12 2.8l2.8 5.7 6.3.9-4.6 4.4 1.1 6.2L12 17l-5.6 3 1.1-6.2-4.6-4.4 6.3-.9z"/></svg>
+</button>
 
 <button id="start" class="btn btn-start" onclick="action('start')">
 <svg viewBox="0 0 24 24" fill="currentColor"><path d="M7 4.5v15a1 1 0 0 0 1.5.86l12-7.5a1 1 0 0 0 0-1.72l-12-7.5A1 1 0 0 0 7 4.5z"/></svg>
@@ -6248,6 +6884,59 @@ autocomplete="current-password"
 <div class="hint" data-i18n="act.none">No activity recorded.</div>
 </div>
 
+</div>
+
+</section>
+
+
+<section id="tab-mods" class="tab-page" hidden>
+
+<div id="modsPending" class="fm-bar fm-bar-move" hidden>
+<span class="fm-bar-text" data-i18n="mods.pending">There are changes waiting: they apply when the server restarts.</span>
+<button class="btn btn-warn btn-small" onclick="applyMods()" data-i18n="mods.apply">Apply and restart</button>
+</div>
+
+<div id="modsModpackNote" class="card" hidden>
+<h3 class="card-title" data-i18n="mods.modpackTitle">Mods come from the modpack</h3>
+<p class="hint" data-i18n="mods.modpackDesc">This server installs the mods of its CurseForge modpack automatically. To add extra jars, upload them to the mods folder in Files.</p>
+</div>
+
+<div id="modsUnsupported" class="card" hidden>
+<h3 class="card-title" data-i18n="mods.unsupportedTitle">This server type has no mods</h3>
+<p class="hint" data-i18n="mods.unsupportedDesc">Vanilla does not load mods or plugins. Change the type to Forge, NeoForge or Fabric (mods) or Paper (plugins) in Settings.</p>
+</div>
+
+<div id="modsNoKey" class="card" hidden>
+<h3 class="card-title" data-i18n="mods.noKeyTitle">CurseForge is not set up</h3>
+<p class="hint" data-i18n="mods.noKeyDesc">An administrator has to add a CurseForge API key in Administration. Meanwhile you can upload jar files in Files.</p>
+</div>
+
+<div id="modsSearchCard" class="card" hidden>
+<div class="card-head">
+<h3 id="modsSearchTitle" class="card-title"></h3>
+<span class="hint">CurseForge</span>
+</div>
+<form class="pl-inline" onsubmit="searchMods(event)">
+<input id="modsQuery" class="input" data-i18n-placeholder="mods.searchPh" placeholder="Search by name..." autocomplete="off">
+<button class="btn btn-start btn-small" type="submit" data-i18n="mods.search">Search</button>
+</form>
+<div id="modsHint" class="pl-hint mods-hint"></div>
+<div id="modsResults" class="mod-list"></div>
+</div>
+
+<div id="modsProjectsCard" class="card">
+<div class="card-head">
+<h3 class="card-title" data-i18n="mods.projectsTitle">Added from CurseForge</h3>
+</div>
+<div id="modsProjects" class="mod-list"></div>
+</div>
+
+<div class="card">
+<div class="card-head">
+<h3 id="modsFilesTitle" class="card-title"></h3>
+<span class="hint" data-i18n="mods.filesHint">Includes jars added by hand or by CurseForge</span>
+</div>
+<div id="modsFiles" class="list"></div>
 </div>
 
 </section>
@@ -6911,7 +7600,7 @@ const I18N = {
         "auth.signupTitle": "Create your account",
         "auth.signupDesc": "Your account comes with your own Minecraft server. Choose its resources below.",
         "auth.setupTitle": "Welcome to MCServer",
-        "auth.setupDesc": "Create the administrator account. The administrator can see and manage every server and user.",
+        "auth.setupDesc": "Create the first account. It becomes the system owner: a full administrator that nobody else can change or delete.",
         "auth.loginBtn": "Log in",
         "auth.signupBtn": "Create account and server",
         "auth.setupBtn": "Create administrator",
@@ -6943,6 +7632,96 @@ const I18N = {
         "form.loading": "Loading...",
         "form.latest": "Latest ({v})",
         "form.versionManual": "The version list could not be loaded; type the version.",
+        "star.set": "Open this server when I open the panel",
+        "star.unset": "Stop opening this server by default",
+        "star.isDefault": "Your default server",
+        "star.setDoneAccount": "Saved in your account: the panel will open on this server",
+        "star.setDoneBrowser": "Saved in this browser: the panel will open on this server",
+        "star.unsetDone": "Default server removed",
+        "star.noStorage": "This browser does not allow saving preferences",
+        "role.owner": "System owner",
+        "auth.setupAccess": "Access",
+        "auth.setupPublic": "Visitors without an account can see the servers and start them",
+        "auth.setupPublicHint": "If you turn it off, everyone must log in to see anything. You can change it later in Administration.",
+        "adm.public": "Visitors can see and start servers",
+        "adm.publicDesc": "People without an account see the server list and status and can start servers. Turn it off to require logging in for everything.",
+        "adm.cf": "CurseForge API key",
+        "adm.cfDesc": "Needed for mods, plugins and modpacks from CurseForge. Get one for free at console.curseforge.com.",
+        "adm.cfSet": "A key is saved. Type a new one to replace it.",
+        "adm.cfMissing": "No key yet.",
+        "adm.cfKeep": "Saved (hidden)",
+        "adm.cfPh": "Paste your API key",
+        "type.modpack": "CurseForge modpack",
+        "type.modpackShort": "Modpack",
+        "form.modpack": "Modpack",
+        "form.modpackSearch": "Search CurseForge modpacks...",
+        "form.modpackPick": "Search and choose a modpack",
+        "form.modpackHint": "The modpack brings its own Minecraft version, loader and mods. The first start can take a long time.",
+        "motd.edit": "Edit server message",
+        "motd.title": "Server message",
+        "motd.desc": "This is the text players see under the server name in the multiplayer list. Use the colors and styles below; up to 2 lines.",
+        "motd.preview": "Preview",
+        "motd.empty": "No message",
+        "motd.saved": "Message saved",
+        "motd.savedRestart": "Message saved. Players will see it after the server restarts.",
+        "motd.bold": "Bold",
+        "motd.italic": "Italic",
+        "motd.underline": "Underline",
+        "motd.strike": "Strikethrough",
+        "motd.obf": "Scrambled text",
+        "motd.reset": "Reset",
+        "motd.resetHint": "Go back to the default color and style",
+        "motd.c0": "Black",
+        "motd.c1": "Dark blue",
+        "motd.c2": "Dark green",
+        "motd.c3": "Dark aqua",
+        "motd.c4": "Dark red",
+        "motd.c5": "Dark purple",
+        "motd.c6": "Gold",
+        "motd.c7": "Gray",
+        "motd.c8": "Dark gray",
+        "motd.c9": "Blue",
+        "motd.ca": "Green",
+        "motd.cb": "Aqua",
+        "motd.cc": "Red",
+        "motd.cd": "Light purple",
+        "motd.ce": "Yellow",
+        "motd.cf": "White",
+        "mods.tab": "Mods",
+        "mods.tabPlugins": "Plugins",
+        "mods.mods": "Mods",
+        "mods.plugins": "Plugins",
+        "mods.pending": "There are changes waiting: they apply when the server restarts.",
+        "mods.apply": "Apply and restart",
+        "mods.applying": "Applying changes. The server is restarting.",
+        "mods.modpackTitle": "Mods come from the modpack",
+        "mods.modpackDesc": "This server installs the mods of its CurseForge modpack automatically. To add extra jars, upload them to the mods folder in Files.",
+        "mods.unsupportedTitle": "This server type has no mods",
+        "mods.unsupportedDesc": "Vanilla does not load mods or plugins. Change the type to Forge, NeoForge or Fabric (mods) or Paper (plugins) in Settings.",
+        "mods.noKeyTitle": "CurseForge is not set up",
+        "mods.noKeyDesc": "An administrator has to add a CurseForge API key in Administration. Meanwhile you can upload jar files in Files.",
+        "mods.searchMods": "Add server mods",
+        "mods.searchPlugins": "Add plugins",
+        "mods.searchPh": "Search by name...",
+        "mods.search": "Search",
+        "mods.hintMods": "Showing mods for {loader} {v}. Client-only mods are hidden.",
+        "mods.hintPlugins": "Showing Bukkit plugins for {v}. They work on Paper.",
+        "mods.projectsTitle": "Added from CurseForge",
+        "mods.noProjects": "Nothing added yet.",
+        "mods.files": "Files in /{folder}",
+        "mods.filesHint": "Includes jars added by hand or by CurseForge",
+        "mods.noFiles": "No jar files yet. CurseForge mods are downloaded when the server starts.",
+        "mods.noResults": "No results.",
+        "mods.add": "Add",
+        "mods.added": "Added",
+        "mods.remove": "Remove",
+        "mods.removeDesc": "\"{name}\" will be removed from the server the next time it starts.",
+        "mods.downloads": "{n} downloads",
+        "mods.envServer": "Server",
+        "mods.envUnknown": "Not specified",
+        "mods.envUnknownHint": "CurseForge does not say if this mod runs on the server. Check its page before adding it.",
+        "mods.pendingToast": "Saved. It will be installed when the server restarts (button at the top).",
+        "mods.appliedToast": "Saved. It will be installed the next time the server starts.",
         "form.ram": "RAM (GB)",
         "form.ramHint": "Up to {max} GB (this machine has {total} GB).",
         "form.cpu": "CPU cores",
@@ -6995,7 +7774,7 @@ const I18N = {
         "adm.cpuHint": "0 = no limit. This machine has {cores}.",
         "adm.servers": "Servers per user",
         "adm.serversDesc": "Administrators have no limit.",
-        "adm.default": "Default server", "adm.defaultDesc": "The panel opens directly on this server. The Servers button still shows the full list.", "adm.defaultNone": "None (show the server list)",
+        "adm.default": "Default server", "adm.defaultDesc": "Opens for people who have not starred a server of their own. Each person can pick theirs with the star next to Start.", "adm.defaultNone": "None (show the server list)",
         "adm.host": "Public address",
         "adm.hostDesc": "IP or domain players use; each server adds its own port.",
         "adm.usersTitle": "Users",
@@ -7433,7 +8212,7 @@ const I18N = {
         "auth.signupTitle": "Crea tu cuenta",
         "auth.signupDesc": "Tu cuenta incluye tu propio servidor de Minecraft. Elige sus recursos abajo.",
         "auth.setupTitle": "Bienvenido a MCServer",
-        "auth.setupDesc": "Crea la cuenta de administrador. El administrador puede ver y manejar todos los servidores y usuarios.",
+        "auth.setupDesc": "Crea la primera cuenta. Será el dueño del sistema: un administrador total que nadie más puede cambiar ni borrar.",
         "auth.loginBtn": "Entrar",
         "auth.signupBtn": "Crear cuenta y servidor",
         "auth.setupBtn": "Crear administrador",
@@ -7465,6 +8244,96 @@ const I18N = {
         "form.loading": "Cargando...",
         "form.latest": "La más reciente ({v})",
         "form.versionManual": "No se pudo cargar la lista de versiones; escribe la versión.",
+        "star.set": "Abrir este servidor al entrar al panel",
+        "star.unset": "Dejar de abrir este servidor por defecto",
+        "star.isDefault": "Tu servidor por defecto",
+        "star.setDoneAccount": "Guardado en tu cuenta: el panel abrirá este servidor",
+        "star.setDoneBrowser": "Guardado en este navegador: el panel abrirá este servidor",
+        "star.unsetDone": "Servidor por defecto quitado",
+        "star.noStorage": "Este navegador no permite guardar preferencias",
+        "role.owner": "Dueño del sistema",
+        "auth.setupAccess": "Acceso",
+        "auth.setupPublic": "Los visitantes sin cuenta pueden ver los servidores y encenderlos",
+        "auth.setupPublicHint": "Si lo desactivas, hay que entrar con una cuenta para ver cualquier cosa. Lo puedes cambiar después en Administración.",
+        "adm.public": "Los visitantes pueden ver y encender servidores",
+        "adm.publicDesc": "Quien no tiene cuenta ve la lista y el estado de los servidores y puede encenderlos. Desactívalo para pedir sesión para todo.",
+        "adm.cf": "Clave de API de CurseForge",
+        "adm.cfDesc": "Necesaria para mods, plugins y modpacks de CurseForge. Consíguela gratis en console.curseforge.com.",
+        "adm.cfSet": "Hay una clave guardada. Escribe otra para reemplazarla.",
+        "adm.cfMissing": "Todavía no hay clave.",
+        "adm.cfKeep": "Guardada (oculta)",
+        "adm.cfPh": "Pega tu clave de API",
+        "type.modpack": "Modpack de CurseForge",
+        "type.modpackShort": "Modpack",
+        "form.modpack": "Modpack",
+        "form.modpackSearch": "Buscar modpacks de CurseForge...",
+        "form.modpackPick": "Busca y elige un modpack",
+        "form.modpackHint": "El modpack trae su propia versión de Minecraft, cargador y mods. El primer arranque puede tardar bastante.",
+        "motd.edit": "Editar mensaje del servidor",
+        "motd.title": "Mensaje del servidor",
+        "motd.desc": "Es el texto que los jugadores ven bajo el nombre del servidor en la lista multijugador. Usa los colores y estilos de abajo; hasta 2 líneas.",
+        "motd.preview": "Vista previa",
+        "motd.empty": "Sin mensaje",
+        "motd.saved": "Mensaje guardado",
+        "motd.savedRestart": "Mensaje guardado. Los jugadores lo verán cuando el servidor se reinicie.",
+        "motd.bold": "Negritas",
+        "motd.italic": "Cursiva",
+        "motd.underline": "Subrayado",
+        "motd.strike": "Tachado",
+        "motd.obf": "Texto revuelto",
+        "motd.reset": "Normal",
+        "motd.resetHint": "Volver al color y estilo normal",
+        "motd.c0": "Negro",
+        "motd.c1": "Azul oscuro",
+        "motd.c2": "Verde oscuro",
+        "motd.c3": "Turquesa oscuro",
+        "motd.c4": "Rojo oscuro",
+        "motd.c5": "Morado",
+        "motd.c6": "Dorado",
+        "motd.c7": "Gris",
+        "motd.c8": "Gris oscuro",
+        "motd.c9": "Azul",
+        "motd.ca": "Verde",
+        "motd.cb": "Turquesa",
+        "motd.cc": "Rojo",
+        "motd.cd": "Rosa",
+        "motd.ce": "Amarillo",
+        "motd.cf": "Blanco",
+        "mods.tab": "Mods",
+        "mods.tabPlugins": "Plugins",
+        "mods.mods": "Mods",
+        "mods.plugins": "Plugins",
+        "mods.pending": "Hay cambios esperando: se aplican cuando el servidor se reinicie.",
+        "mods.apply": "Aplicar y reiniciar",
+        "mods.applying": "Aplicando cambios. El servidor se está reiniciando.",
+        "mods.modpackTitle": "Los mods vienen del modpack",
+        "mods.modpackDesc": "Este servidor instala solo los mods de su modpack de CurseForge. Para agregar jars extra, súbelos a la carpeta mods en Archivos.",
+        "mods.unsupportedTitle": "Este tipo de servidor no tiene mods",
+        "mods.unsupportedDesc": "Vanilla no carga mods ni plugins. Cambia el tipo a Forge, NeoForge o Fabric (mods) o Paper (plugins) en Ajustes.",
+        "mods.noKeyTitle": "CurseForge no está configurado",
+        "mods.noKeyDesc": "Un administrador tiene que agregar una clave de API de CurseForge en Administración. Mientras tanto puedes subir archivos jar en Archivos.",
+        "mods.searchMods": "Agregar mods de servidor",
+        "mods.searchPlugins": "Agregar plugins",
+        "mods.searchPh": "Buscar por nombre...",
+        "mods.search": "Buscar",
+        "mods.hintMods": "Se muestran mods para {loader} {v}. Los mods solo de cliente se ocultan.",
+        "mods.hintPlugins": "Se muestran plugins de Bukkit para {v}. Funcionan en Paper.",
+        "mods.projectsTitle": "Agregados desde CurseForge",
+        "mods.noProjects": "Todavía no hay nada agregado.",
+        "mods.files": "Archivos en /{folder}",
+        "mods.filesHint": "Incluye los jars subidos a mano o por CurseForge",
+        "mods.noFiles": "Todavía no hay archivos jar. Los mods de CurseForge se descargan cuando arranca el servidor.",
+        "mods.noResults": "Sin resultados.",
+        "mods.add": "Agregar",
+        "mods.added": "Agregado",
+        "mods.remove": "Quitar",
+        "mods.removeDesc": "\"{name}\" se quitará del servidor la próxima vez que arranque.",
+        "mods.downloads": "{n} descargas",
+        "mods.envServer": "Servidor",
+        "mods.envUnknown": "Sin indicar",
+        "mods.envUnknownHint": "CurseForge no indica si este mod funciona en el servidor. Revisa su página antes de agregarlo.",
+        "mods.pendingToast": "Guardado. Se instalará cuando el servidor se reinicie (botón arriba).",
+        "mods.appliedToast": "Guardado. Se instalará la próxima vez que arranque el servidor.",
         "form.ram": "RAM (GB)",
         "form.ramHint": "Hasta {max} GB (este equipo tiene {total} GB).",
         "form.cpu": "Núcleos de CPU",
@@ -7517,7 +8386,7 @@ const I18N = {
         "adm.cpuHint": "0 = sin límite. Este equipo tiene {cores}.",
         "adm.servers": "Servidores por usuario",
         "adm.serversDesc": "Los administradores no tienen límite.",
-        "adm.default": "Servidor por defecto", "adm.defaultDesc": "El panel abre directamente este servidor. El botón Servidores sigue mostrando la lista completa.", "adm.defaultNone": "Ninguno (mostrar la lista de servidores)",
+        "adm.default": "Servidor por defecto", "adm.defaultDesc": "Se abre para quien no haya marcado uno propio. Cada persona puede elegir el suyo con la estrella junto a Iniciar.", "adm.defaultNone": "Ninguno (mostrar la lista de servidores)",
         "adm.host": "Dirección pública",
         "adm.hostDesc": "IP o dominio que usan los jugadores; cada servidor agrega su puerto.",
         "adm.usersTitle": "Usuarios",
@@ -7645,6 +8514,27 @@ const SERVER_MESSAGES_EN = {
     "Respaldos a conservar: entre 1 y 60": "Backups to keep: between 1 and 60",
     "Versión del cargador no válida": "Invalid loader version",
     "Versión de Java no válida": "Invalid Java version",
+    "El mensaje es demasiado largo (máx. 200 caracteres)": "The message is too long (max. 200 characters)",
+    "Mensaje guardado": "Message saved",
+    "Falta la clave de API de CurseForge. El administrador la agrega en Administración.": "The CurseForge API key is missing. An administrator adds it in Administration.",
+    "CurseForge rechazó la clave de API": "CurseForge rejected the API key",
+    "No se pudo conectar con CurseForge": "Could not connect to CurseForge",
+    "Búsqueda no válida": "Invalid search",
+    "Este tipo de servidor no admite mods ni plugins": "This server type does not support mods or plugins",
+    "Proyecto no válido": "Invalid project",
+    "Ya estaba agregado": "Already added",
+    "Agregado": "Added",
+    "Ese proyecto no está agregado": "That project is not added",
+    "Quitado": "Removed",
+    "Aplicando cambios": "Applying changes",
+    "Modpack no válido": "Invalid modpack",
+    "Elige un modpack de CurseForge": "Choose a CurseForge modpack",
+    "El dueño del sistema no puede borrar su cuenta; para quitar todo usa Desinstalar": "The system owner cannot delete their account; to remove everything use Uninstall",
+    "Nadie puede cambiar la cuenta del dueño del sistema": "Nobody can change the system owner's account",
+    "Solo el dueño del sistema puede cambiar roles": "Only the system owner can change roles",
+    "Nadie puede borrar la cuenta del dueño del sistema": "Nobody can delete the system owner's account",
+    "La clave de CurseForge no parece válida": "The CurseForge key does not look valid",
+    "Solo el dueño del sistema puede desinstalar": "Only the system owner can uninstall",
     "Ese servidor no existe": "That server does not exist",
     "Movido": "Moved",
     "No hay elementos seleccionados": "No items selected",
@@ -7660,6 +8550,7 @@ const SERVER_MESSAGES_EN = {
 
 const SERVER_PREFIXES_EN = [
     ["No existe: ", "Does not exist: "],
+    ["CurseForge respondió con un error ", "CurseForge answered with an error "],
     ["La RAM debe estar entre 1 y ", "RAM must be between 1 and "],
     ["Los núcleos deben estar entre 0 y ", "Cores must be between 0 and "],
     ["Valor no válido para ", "Invalid value for "],
@@ -7954,6 +8845,9 @@ async function update() {
         canManageCurrent = !!data.can_manage;
         authorized = canManageCurrent;
         applyManageUI();
+
+        currentMotd = data.motd || "";
+        renderMcText($("motdView"), currentMotd);
 
         if (wasManage && !canManageCurrent && activeTab !== "panel") showTab("panel");
 
@@ -8777,7 +9671,13 @@ const TAB_HASH = {
 
 function showTab(name) {
 
-    if (!["panel", "players", "files", "settings"].includes(name)) name = "panel";
+    // Sin servidor abierto (por ejemplo desde la lista) no hay pestanas
+    if (!currentServer) {
+        go("#/");
+        return;
+    }
+
+    if (!["panel", "players", "mods", "files", "settings"].includes(name)) name = "panel";
 
     // Las pestanas de administracion son solo del dueno o del admin
     if (name !== "panel" && !canManageCurrent) {
@@ -8791,7 +9691,7 @@ function showTab(name) {
         btn.classList.toggle("active", btn.dataset.tab === name);
     });
 
-    ["panel", "players", "files", "settings"].forEach(function(tab) {
+    ["panel", "players", "mods", "files", "settings"].forEach(function(tab) {
         $("tab-" + tab).hidden = tab !== name;
     });
 
@@ -8809,9 +9709,16 @@ function applyManageUI() {
     const manage = canManageCurrent;
     const info = currentServerInfo;
 
-    ["players", "files", "settings"].forEach(function(tab) {
+    ["players", "mods", "files", "settings"].forEach(function(tab) {
         document.querySelector('.tab-btn[data-tab="' + tab + '"]').hidden = !manage;
     });
+
+    // Mods o Plugins segun el tipo; Vanilla no tiene
+    const modsTab = document.querySelector('.tab-btn[data-tab="mods"]');
+    const type = info ? info.type : "";
+    modsTab.hidden = !manage || type === "VANILLA";
+    $("modsTabLabel").textContent = type === "PAPER" ? t("mods.tabPlugins") : t("mods.tab");
+    $("motdEdit").hidden = !manage;
 
     $("stop").hidden = !manage;
     $("restart").hidden = !manage;
@@ -8821,6 +9728,66 @@ function applyManageUI() {
     document.title = info ? info.name + " · " + (authState ? authState.system_name : "") : document.title;
 
     if (consoleLocked === manage) setConsoleLocked(!manage);
+
+    renderDefaultStar();
+}
+
+
+// Estrella: servidor favorito que se abre al entrar al panel. Con sesion
+// se guarda en la cuenta; sin sesion, en la memoria de este navegador.
+function localDefault() {
+    try {
+        const value = Number(localStorage.getItem("mc-default-server"));
+        return value > 0 ? value : null;
+    } catch (error) {
+        return null;
+    }
+}
+
+
+function personalDefault() {
+    return loggedIn() ? authState.my_default : localDefault();
+}
+
+
+function renderDefaultStar() {
+
+    const star = $("defaultStar");
+    const isDefault = !!currentServer && personalDefault() === currentServer;
+
+    star.hidden = !currentServer;
+    star.disabled = false;
+    star.classList.toggle("on", isDefault);
+    star.title = isDefault ? t("star.unset") : t("star.set");
+}
+
+
+async function toggleDefaultServer() {
+
+    if (!currentServer) return;
+
+    const isDefault = personalDefault() === currentServer;
+
+    try {
+        if (loggedIn()) {
+            await postJson("/me/default", { server: isDefault ? "" : String(currentServer) });
+            await refreshAuth();
+        } else {
+            try {
+                if (isDefault) localStorage.removeItem("mc-default-server");
+                else localStorage.setItem("mc-default-server", String(currentServer));
+            } catch (error) {
+                showToast(t("star.noStorage"), "red");
+                return;
+            }
+        }
+
+        renderDefaultStar();
+        showToast(isDefault ? t("star.unsetDone")
+            : loggedIn() ? t("star.setDoneAccount") : t("star.setDoneBrowser"), "green");
+    } catch (error) {
+        showToast(error.message, "red");
+    }
 }
 
 
@@ -9288,7 +10255,9 @@ function enterTab() {
 
     if (!authorized) return;
 
-    if (activeTab === "files") {
+    if (activeTab === "mods") {
+        loadMods();
+    } else if (activeTab === "files") {
         filesReady = true;
         $("filesArea").hidden = false;
         loadFolder(currentPath);
@@ -10340,7 +11309,7 @@ const SETTINGS_GROUPS = [
     {
         id: "players",
         keys: ["max-players", "white-list", "enforce-whitelist", "online-mode",
-            "hide-online-players", "motd"]
+            "hide-online-players"]
     }
 ];
 
@@ -11147,7 +12116,7 @@ let canManageCurrent = false;
 let currentView = "home";
 
 // Rutas que dependen del servidor abierto: se les antepone /s/<id>
-const SERVER_SCOPED = /^\/(api|stats|console|chat|files\/|backups|settings|players|command|action\/|server\/)/;
+const SERVER_SCOPED = /^\/(api|stats|console|chat|files\/|backups|settings|players|mods|command|action\/|server\/)/;
 
 // Rutas que cualquiera puede consultar sin ser dueno
 const SERVER_PUBLIC = /^\/(api|stats|action\/start)/;
@@ -11244,6 +12213,11 @@ async function route() {
         return go("#/");
     }
 
+    if (!loggedIn() && authState && !authState.public_access && !authState.setup
+            && (target.view === "home" || target.view === "server")) {
+        return go("#/login");
+    }
+
     if ((target.view === "account" || target.view === "admin") && !loggedIn()) {
         return go("#/login");
     }
@@ -11280,12 +12254,13 @@ function showView(name) {
         $(id).hidden = id !== section;
     });
 
-    ["panel", "players", "files", "settings"].forEach(function(tab) {
+    ["panel", "players", "mods", "files", "settings"].forEach(function(tab) {
         $("tab-" + tab).hidden = true;
     });
 
     $("serverNav").hidden = true;
     $("homeBtn").hidden = name === "home";
+    $("homeBtn").classList.toggle("active", false);
     $("appSubtitle").textContent = t("nav." + (name === "signup" || name === "setup" ? name : name));
 
     if (name === "home") loadServers();
@@ -11472,9 +12447,18 @@ function renderServers(servers) {
         const logo = el("div", "logo srv-logo");
         logo.append(el("div", "grass"), el("div", "dirt"));
         const titles = el("div", "srv-titles");
-        titles.append(el("div", "srv-name", server.name),
+        const nameEl = el("div", "srv-name", server.name);
+
+        if (personalDefault() === server.id) {
+            const mark = el("span", "srv-star");
+            mark.innerHTML = '<svg viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M12 2.8l2.8 5.7 6.3.9-4.6 4.4 1.1 6.2L12 17l-5.6 3 1.1-6.2-4.6-4.4 6.3-.9z"/></svg>';
+            mark.title = t("star.isDefault");
+            nameEl.prepend(mark);
+        }
+
+        titles.append(nameEl,
                       el("div", "srv-meta", t("srv.by", { owner: server.owner || "-" }) + " · " +
-                          server.type.charAt(0) + server.type.slice(1).toLowerCase() + " " + server.version));
+                          typeName(server.type) + (server.type === "AUTO_CURSEFORGE" ? " " + server.modpack : " " + server.version)));
         const pill = el("span", "pill srv-pill is-" + tone);
         pill.append(el("span", "dot"), el("span", "", label));
         top.append(logo, titles, pill);
@@ -11523,7 +12507,10 @@ function renderServers(servers) {
         open.onclick = function() { go("#/s/" + server.id); };
         actions.append(open);
 
-        card.append(top, middle, actions);
+        const motdEl = el("div", "motd srv-motd");
+        renderMcText(motdEl, server.motd);
+
+        card.append(top, motdEl, middle, actions);
         card.onclick = function(event) {
             if (event.target.closest("button")) return;
             go("#/s/" + server.id);
@@ -11595,6 +12582,11 @@ function serverFields(prefix, values) {
     type.id = prefix + "Type";
     [["PAPER", "type.paper"], ["FORGE", "type.forge"], ["NEOFORGE", "type.neoforge"], ["FABRIC", "type.fabric"], ["VANILLA", "type.vanilla"]]
         .forEach(function([value, key]) { option(type, value, t(key)); });
+
+    if ((authState && authState.cf_enabled) || v.type === "AUTO_CURSEFORGE") {
+        option(type, "AUTO_CURSEFORGE", t("type.modpack"));
+    }
+
     type.value = v.type || "PAPER";
     field(t("form.type"), type);
 
@@ -11607,6 +12599,52 @@ function serverFields(prefix, values) {
     const loader = el("select", "input");
     loader.id = prefix + "Loader";
     const loaderWrap = field(t("form.loader"), loader);
+
+    // Modpack de CurseForge: buscar y elegir
+    const modpackBox = el("div", "modpack-box");
+    const modpackSearch = el("input", "input");
+    modpackSearch.placeholder = t("form.modpackSearch");
+    modpackSearch.autocomplete = "off";
+    const modpackSel = el("select", "input");
+    modpackSel.id = prefix + "Modpack";
+    if (v.modpack) option(modpackSel, v.modpack, v.modpack);
+    else option(modpackSel, "", t("form.modpackPick"));
+    modpackBox.append(modpackSearch, modpackSel);
+    const modpackWrap = field(t("form.modpack"), modpackBox, t("form.modpackHint"));
+    modpackWrap.hidden = true;
+
+    let modpackTimer = null;
+
+    modpackSearch.oninput = function() {
+        clearTimeout(modpackTimer);
+        modpackTimer = setTimeout(async function() {
+            const q = modpackSearch.value.trim();
+            if (q.length < 2) return;
+
+            modpackSel.textContent = "";
+            option(modpackSel, "", t("form.loading"));
+
+            try {
+                const response = await fetch("/cf/modpacks?q=" + encodeURIComponent(q));
+                const data = await response.json();
+                modpackSel.textContent = "";
+
+                if (data.ok === false) {
+                    option(modpackSel, "", serverText(data.message));
+                    return;
+                }
+
+                if (!data.results.length) option(modpackSel, "", t("mods.noResults"));
+
+                data.results.forEach(function(item) {
+                    option(modpackSel, item.slug, item.name + " · " + t("mods.downloads", { n: compactNumber(item.downloads) }));
+                });
+            } catch (error) {
+                modpackSel.textContent = "";
+                option(modpackSel, "", t("login.noConnection"));
+            }
+        }, 450);
+    };
 
     const java = el("select", "input");
     java.id = prefix + "Java";
@@ -11685,6 +12723,16 @@ function serverFields(prefix, values) {
 
     const loadVersions = async function() {
 
+        // Un modpack trae su propia version de Minecraft y cargador
+        const isModpack = type.value === "AUTO_CURSEFORGE";
+        modpackWrap.hidden = !isModpack;
+        versionWrap.hidden = isModpack;
+
+        if (isModpack) {
+            loaderWrap.hidden = true;
+            return;
+        }
+
         const select = $(prefix + "Version");
 
         if (!select || select.tagName !== "SELECT") return loadLoaders();
@@ -11747,6 +12795,7 @@ function readServerFields(prefix) {
         version: ($(prefix + "Version").value || "").trim() || "LATEST",
         loader: $(prefix + "Loader") && !$(prefix + "Loader").closest(".field").hidden ? $(prefix + "Loader").value : "",
         java: $(prefix + "Java").value,
+        modpack: $(prefix + "Type").value === "AUTO_CURSEFORGE" && $(prefix + "Modpack") ? $(prefix + "Modpack").value : undefined,
         max_gb: Number($(prefix + "Ram").value),
         cpu: Number($(prefix + "Cpu").value)
     };
@@ -11831,6 +12880,7 @@ function renderAuth(mode) {
     }
 
     let withServer = null;
+    let publicBox = null;
 
     if (mode === "signup") {
         form.append(el("div", "form-section", t("form.yourServer")));
@@ -11838,6 +12888,15 @@ function renderAuth(mode) {
     }
 
     if (mode === "setup") {
+        const pub = el("label", "un-check");
+        publicBox = el("input");
+        publicBox.type = "checkbox";
+        publicBox.checked = true;
+        pub.append(publicBox, document.createTextNode(" " + t("auth.setupPublic")));
+        form.append(el("div", "form-section", t("auth.setupAccess")), pub,
+                    el("div", "field-hint", t("auth.setupPublicHint")),
+                    el("div", "form-section", t("form.yourServer")));
+
         const label = el("label", "un-check");
         withServer = el("input");
         withServer.type = "checkbox";
@@ -11867,6 +12926,8 @@ function renderAuth(mode) {
         }
 
         const body = { username: user.value.trim(), password: pass.value };
+
+        if (mode === "setup") body.public_access = publicBox.checked;
 
         if (mode === "signup" || (mode === "setup" && withServer.checked)) {
             body.server = readServerFields("authSrv");
@@ -11987,7 +13048,7 @@ function renderAccount() {
 
     const user = authState.user;
     $("accountName").textContent = user.username;
-    $("accountRole").textContent = t("role." + user.role);
+    $("accountRole").textContent = user.owner ? t("role.owner") : t("role." + user.role);
     $("pwCurrent").value = "";
     $("pwNew").value = "";
     $("pwNew2").value = "";
@@ -12156,6 +13217,11 @@ async function loadAdmin() {
 function renderAdminSettings(settings) {
 
     $("admSignup").checked = settings.signup === "yes";
+    $("admPublic").checked = settings.public_access !== "no";
+    $("admCf").value = "";
+    $("admCf").placeholder = settings.cf_api_key_set ? t("adm.cfKeep") : t("adm.cfPh");
+    $("admCfState").textContent = settings.cf_api_key_set ? t("adm.cfSet") : t("adm.cfMissing");
+    $("admDanger").hidden = !(authState.user && authState.user.owner);
     $("admRam").value = settings.max_ram_gb;
     $("admRam").max = settings.limits.system_ram_gb;
     $("admRamHint").textContent = t("adm.ramHint", { total: settings.limits.system_ram_gb });
@@ -12183,15 +13249,19 @@ function renderAdminSettings(settings) {
 
 
 async function saveAdminSettings() {
+    const settingsBody = {};
+    if ($("admCf").value.trim()) settingsBody.cf_api_key = $("admCf").value.trim();
+
     try {
-        await postJson("/admin/settings", {
+        await postJson("/admin/settings", Object.assign(settingsBody, {
             signup: $("admSignup").checked,
             max_ram_gb: Number($("admRam").value),
             max_cpu: Number($("admCpu").value),
             max_servers_per_user: Number($("admServers").value),
             public_host: $("admHost").value.trim(),
+            public_access: $("admPublic").checked,
             default_server: $("admDefault").value
-        });
+        }));
         showToast(t("set.saved"), "green");
         await refreshAuth();
     } catch (error) {
@@ -12213,7 +13283,8 @@ function renderAdminUsers(users) {
 
         const text = el("div");
         const name = el("div", "adm-name", user.username);
-        if (user.role === "admin") name.append(el("span", "tag amber", t("role.admin")));
+        if (user.owner) name.append(el("span", "tag amber", t("role.owner")));
+        else if (user.role === "admin") name.append(el("span", "tag amber", t("role.admin")));
         text.append(name, el("div", "pl-sub",
             (user.servers.length ? user.servers.map(function(s) { return s.name; }).join(", ") : t("adm.noServer"))
             + " · " + new Date(user.created * 1000).toLocaleDateString(locale())));
@@ -12222,7 +13293,7 @@ function renderAdminUsers(users) {
         const actions = el("div", "pl-actions");
         const self = authState.user && authState.user.id === user.id;
 
-        if (!self) {
+        if (!self && !user.owner && authState.user.owner) {
             const role = el("button", "btn btn-ghost btn-small",
                 user.role === "admin" ? t("adm.makeUser") : t("adm.makeAdmin"));
             role.onclick = async function() {
@@ -12243,9 +13314,9 @@ function renderAdminUsers(users) {
                 showToast(t("acc.pwSaved"), "green");
             } catch (error) { showToast(error.message, "red"); }
         };
-        actions.append(reset);
+        if (!user.owner || self) actions.append(reset);
 
-        if (!self) {
+        if (!self && !user.owner) {
             const del = el("button", "btn btn-stop btn-small", t("fm.delete"));
             del.onclick = async function() {
                 const result = await doubleConfirm({
@@ -12409,13 +13480,384 @@ async function initApp() {
     await refreshAuth();
 
     // Solo al abrir el panel sin ruta: el boton Servidores (#/) sigue mostrando la lista
-    if ((!location.hash || location.hash === "#") && authState.default_server && !authState.setup) {
-        history.replaceState(null, "", "#/s/" + authState.default_server);
+    // Primero el favorito de la persona (cuenta o navegador), luego el del admin
+    const startServer = personalDefault() || authState.default_server;
+    const canSee = loggedIn() || authState.public_access;
+
+    if ((!location.hash || location.hash === "#") && startServer && canSee && !authState.setup) {
+        history.replaceState(null, "", "#/s/" + startServer);
     }
     startNotifications();
     window.addEventListener("hashchange", route);
     await route();
     setInterval(loadServers, 5000);
+}
+
+
+// ============================================================
+// Mensaje del servidor (MOTD) con codigos de color de Minecraft
+// ============================================================
+
+const MC_COLORS = {
+    "0": "#000000", "1": "#0000AA", "2": "#00AA00", "3": "#00AAAA",
+    "4": "#AA0000", "5": "#AA00AA", "6": "#FFAA00", "7": "#AAAAAA",
+    "8": "#555555", "9": "#5555FF", "a": "#55FF55", "b": "#55FFFF",
+    "c": "#FF5555", "d": "#FF55FF", "e": "#FFFF55", "f": "#FFFFFF"
+};
+
+const MC_FORMATS = { l: "b", o: "i", n: "u", m: "s", k: "k" };
+
+let currentMotd = "";
+
+
+function renderMcText(target, text) {
+
+    target.textContent = "";
+
+    const blank = function() {
+        return { color: null, b: false, i: false, u: false, s: false, k: false };
+    };
+
+    let state = blank();
+
+    String(text || "").split(/(§[0-9a-fk-or])/i).forEach(function(part) {
+
+        const code = /^§([0-9a-fk-or])$/i.exec(part);
+
+        if (code) {
+            const c = code[1].toLowerCase();
+
+            if (MC_COLORS[c]) state = Object.assign(blank(), { color: MC_COLORS[c] });
+            else if (c === "r") state = blank();
+            else state[MC_FORMATS[c]] = true;
+
+            return;
+        }
+
+        part.split("\n").forEach(function(segment, index) {
+
+            if (index > 0) target.append(document.createElement("br"));
+            if (!segment) return;
+
+            const span = el("span", state.k ? "mc-obf" : "", segment);
+            if (state.color) span.style.color = state.color;
+            if (state.b) span.style.fontWeight = "700";
+            if (state.i) span.style.fontStyle = "italic";
+
+            const deco = [state.u && "underline", state.s && "line-through"].filter(Boolean).join(" ");
+            if (deco) span.style.textDecoration = deco;
+
+            target.append(span);
+        });
+    });
+
+    if (!target.childNodes.length) {
+        target.append(el("span", "motd-empty", t("motd.empty")));
+    }
+}
+
+
+async function editMotd() {
+
+    const area = el("textarea", "input motd-input");
+    area.rows = 2;
+    area.maxLength = 200;
+    area.spellcheck = false;
+    area.value = currentMotd;
+
+    const preview = el("div", "motd motd-preview");
+    const title = el("div", "motd-title", currentServerInfo ? currentServerInfo.name : "");
+    const lines = el("div");
+    preview.append(title, lines);
+
+    const counter = el("span", "field-hint");
+
+    const refresh = function() {
+        // El cliente muestra como mucho dos lineas
+        const parts = area.value.split("\n");
+        if (parts.length > 2) area.value = parts.slice(0, 2).join("\n");
+
+        renderMcText(lines, area.value);
+        counter.textContent = area.value.length + " / 200";
+    };
+
+    const insert = function(code) {
+        area.setRangeText("§" + code, area.selectionStart, area.selectionEnd, "end");
+        area.focus();
+        refresh();
+    };
+
+    const palette = el("div", "motd-palette");
+
+    Object.keys(MC_COLORS).forEach(function(code) {
+        const swatch = el("button", "motd-swatch");
+        swatch.type = "button";
+        swatch.style.background = MC_COLORS[code];
+        swatch.title = t("motd.c" + code);
+        swatch.onclick = function() { insert(code); };
+        palette.append(swatch);
+    });
+
+    const formats = el("div", "motd-formats");
+
+    [["l", "B", "motd.bold", "font-weight:800"], ["o", "I", "motd.italic", "font-style:italic"],
+     ["n", "U", "motd.underline", "text-decoration:underline"], ["m", "S", "motd.strike", "text-decoration:line-through"],
+     ["k", "?", "motd.obf", ""], ["r", t("motd.reset"), "motd.resetHint", ""]].forEach(function([code, label, key, css]) {
+        const button = el("button", "btn btn-ghost btn-small motd-fmt", label);
+        button.type = "button";
+        button.title = t(key);
+        if (css) button.style.cssText = css;
+        button.onclick = function() { insert(code); };
+        formats.append(button);
+    });
+
+    area.oninput = refresh;
+    refresh();
+
+    const ok = await openModal({
+        title: t("motd.title"),
+        body: [t("motd.desc"), palette, formats, area, counter, el("div", "field-label", t("motd.preview")), preview],
+        okText: t("set.save"),
+        onOk: function() { return true; }
+    });
+
+    if (!ok) return;
+
+    try {
+        const data = await postJson("/server/motd", { motd: area.value });
+        showToast(data.running ? t("motd.savedRestart") : t("motd.saved"), data.running ? "amber" : "green");
+        update();
+    } catch (error) {
+        showToast(error.message, "red");
+    }
+}
+
+
+// ============================================================
+// Mods y plugins (CurseForge)
+// ============================================================
+
+let modsData = null;
+
+
+function typeName(type) {
+    return {
+        FORGE: "Forge", NEOFORGE: "NeoForge", FABRIC: "Fabric", PAPER: "Paper",
+        VANILLA: "Vanilla", AUTO_CURSEFORGE: t("type.modpackShort")
+    }[type] || type;
+}
+
+
+function compactNumber(n) {
+    try {
+        return new Intl.NumberFormat(locale(), { notation: "compact" }).format(n || 0);
+    } catch (error) {
+        return String(n || 0);
+    }
+}
+
+
+async function loadMods() {
+    try {
+        modsData = await api("/mods?t=" + Date.now());
+        renderMods();
+    } catch (error) {
+        if (error.message !== "auth") showToast(error.message, "red");
+    }
+}
+
+
+function modRow(item, button) {
+
+    const row = el("div", "mod-row");
+
+    const icon = el("div", "mod-icon");
+    if (item.icon) {
+        const img = document.createElement("img");
+        img.src = item.icon;
+        img.alt = "";
+        img.onerror = function() { img.remove(); };
+        icon.append(img);
+    }
+
+    const info = el("div", "mod-info");
+    const name = el("div", "mod-name", item.name || item.slug);
+
+    if (item.env === "unknown") {
+        const tag = el("span", "tag amber", t("mods.envUnknown"));
+        tag.title = t("mods.envUnknownHint");
+        name.append(tag);
+    } else if (item.env === "server") {
+        name.append(el("span", "tag green", t("mods.envServer")));
+    }
+
+    info.append(name);
+    if (item.summary) info.append(el("div", "mod-summary", item.summary));
+
+    const meta = [item.author, item.downloads ? t("mods.downloads", { n: compactNumber(item.downloads) }) : ""]
+        .filter(Boolean).join(" · ");
+    if (meta) info.append(el("div", "pl-sub", meta));
+
+    row.append(icon, info);
+    if (button) row.append(button);
+
+    return row;
+}
+
+
+function renderMods() {
+
+    const d = modsData;
+    if (!d) return;
+
+    const modpack = d.type === "AUTO_CURSEFORGE";
+    const supported = !!d.kind;
+
+    $("modsPending").hidden = !(d.pending && d.running);
+    $("modsModpackNote").hidden = !modpack;
+    $("modsUnsupported").hidden = supported || modpack;
+    $("modsNoKey").hidden = d.cf || !supported;
+    $("modsSearchCard").hidden = !(d.cf && supported);
+    $("modsProjectsCard").hidden = !supported;
+
+    $("modsSearchTitle").textContent = d.kind === "plugins" ? t("mods.searchPlugins") : t("mods.searchMods");
+    $("modsHint").textContent = d.kind === "plugins"
+        ? t("mods.hintPlugins", { v: d.version })
+        : t("mods.hintMods", { v: d.version, loader: typeName(d.type) });
+    $("modsFilesTitle").textContent = t("mods.files", { folder: d.folder });
+
+    const projects = $("modsProjects");
+    projects.textContent = "";
+
+    if (!d.projects.length) {
+        projects.append(el("div", "list-empty", t("mods.noProjects")));
+    }
+
+    d.projects.forEach(function(item) {
+        const remove = el("button", "btn btn-ghost btn-small", t("mods.remove"));
+        remove.onclick = function() { removeMod(item.slug, item.name || item.slug); };
+        projects.append(modRow(item, remove));
+    });
+
+    const files = $("modsFiles");
+    files.textContent = "";
+
+    if (!d.files.length) {
+        files.append(el("div", "list-empty", t("mods.noFiles")));
+    }
+
+    d.files.forEach(function(file) {
+        const row = el("div", "row mod-file");
+        const icon = el("span", "row-icon");
+        icon.innerHTML = ICONS.archive;
+        const actions = el("span", "row-actions");
+        actions.append(iconButton("trash", t("fm.delete"), function() { deleteModFile(file.name); }, true));
+        row.append(icon, el("span", "row-name", file.name), el("span", "row-meta row-size", formatBytes(file.size)), actions);
+        files.append(row);
+    });
+}
+
+
+async function searchMods(event) {
+
+    event.preventDefault();
+
+    const box = $("modsResults");
+    box.textContent = "";
+    box.append(el("div", "list-empty", t("form.loading")));
+
+    try {
+        const data = await api("/mods/search?q=" + encodeURIComponent($("modsQuery").value.trim()));
+        const added = new Set((modsData.projects || []).map(function(p) { return p.slug; }));
+
+        box.textContent = "";
+
+        if (!data.results.length) {
+            box.append(el("div", "list-empty", t("mods.noResults")));
+        }
+
+        data.results.forEach(function(item) {
+            const button = el("button", "btn btn-start btn-small", added.has(item.slug) ? t("mods.added") : t("mods.add"));
+            button.disabled = added.has(item.slug);
+            button.onclick = async function() {
+                button.disabled = true;
+                if (await addMod(item)) button.textContent = t("mods.added");
+                else button.disabled = false;
+            };
+            box.append(modRow(item, button));
+        });
+    } catch (error) {
+        box.textContent = "";
+        box.append(el("div", "list-empty", error.message === "auth" ? "" : error.message));
+    }
+}
+
+
+function appliedToast(data) {
+    showToast(data.applied === "pending" ? t("mods.pendingToast") : t("mods.appliedToast"),
+        data.applied === "pending" ? "amber" : "green");
+}
+
+
+async function addMod(item) {
+    try {
+        const data = await api("/mods/add", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ slug: item.slug, name: item.name, icon: item.icon, env: item.env })
+        });
+        appliedToast(data);
+        loadMods();
+        return true;
+    } catch (error) {
+        if (error.message !== "auth") showToast(error.message, "red");
+        return false;
+    }
+}
+
+
+async function removeMod(slug, name) {
+
+    const ok = await confirmDialog(t("mods.remove"), t("mods.removeDesc", { name: name }));
+    if (!ok) return;
+
+    try {
+        const data = await api("/mods/remove", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ slug: slug })
+        });
+        appliedToast(data);
+        loadMods();
+    } catch (error) {
+        if (error.message !== "auth") showToast(error.message, "red");
+    }
+}
+
+
+async function deleteModFile(name) {
+
+    const ok = await confirmDialog(t("fm.delete"), t("fm.deleteFile", { name: name }));
+    if (!ok) return;
+
+    try {
+        await api("/files/delete?path=" + encodeURIComponent(modsData.folder + "/" + name), { method: "POST" });
+        showToast(t("fm.deleted"), "green");
+        loadMods();
+    } catch (error) {
+        if (error.message !== "auth") showToast(error.message, "red");
+    }
+}
+
+
+async function applyMods() {
+    try {
+        await api("/mods/apply", { method: "POST" });
+        showToast(t("mods.applying"), "amber");
+        setTimeout(loadMods, 1500);
+    } catch (error) {
+        if (error.message !== "auth") showToast(error.message, "red");
+    }
 }
 
 
@@ -12776,7 +14218,17 @@ class Handler(BaseHTTPRequestHandler):
             self.send_json(auth_state(user))
 
         elif path == "/servers":
+            if not public_ok(user):
+                return self.deny(user)
+
             self.send_json({"servers": list_public_servers()})
+
+        elif path == "/cf/modpacks":
+            # El formulario de registro tambien busca modpacks
+            if not user and core.get_setting("signup") != "yes" and core.user_count() > 0:
+                return self.deny(user)
+
+            self.guarded(lambda: self.send_json(cf_search("modpacks", param("q"))))
 
         elif path == "/versions":
             self.guarded(lambda: self.send_json(available_versions(param("type"), param("mc"))))
@@ -12817,7 +14269,10 @@ class Handler(BaseHTTPRequestHandler):
         use_server(srv)
         manage = can_manage(user, srv)
 
-        # Publico: estado y recursos
+        # Publico: estado y recursos (si el admin lo permite)
+        if path in ("/api", "/stats") and not public_ok(user):
+            return self.deny(user)
+
         if path == "/api":
             data = server_data()
             owner = core.get_user(srv.owner_id) if srv.owner_id else None
@@ -12838,6 +14293,17 @@ class Handler(BaseHTTPRequestHandler):
 
         elif path == "/console":
             self.send_body(console().encode("utf-8"), "text/plain; charset=utf-8")
+
+        elif path == "/mods":
+            self.send_json(mods_state())
+
+        elif path == "/mods/search":
+            kind = MOD_KIND.get(srv.type)
+
+            if not kind:
+                raise FileError("Este tipo de servidor no admite mods ni plugins")
+
+            self.send_json(cf_search(kind, param("q"), srv.version, srv.type))
 
         elif path == "/files/list":
             self.send_json(list_files(param("path")))
@@ -12947,6 +14413,9 @@ class Handler(BaseHTTPRequestHandler):
         elif path == "/me/password":
             self.send_json(change_password(user, self.json_body(4096)))
 
+        elif path == "/me/default":
+            self.send_json(set_personal_default(user, self.json_body(4096)))
+
         elif path == "/me/delete":
             result = delete_account(user, self.json_body(4096))
             self.send_json(result, headers={
@@ -12970,6 +14439,9 @@ class Handler(BaseHTTPRequestHandler):
             self.send_json(admin_save_settings(self.json_body(4096)))
 
         elif path == "/admin/uninstall":
+            if not is_owner(user):
+                raise FileError("Solo el dueño del sistema puede desinstalar", 403)
+
             self.send_json(start_uninstall(self.json_body(4096)))
 
         else:
@@ -12992,8 +14464,12 @@ class Handler(BaseHTTPRequestHandler):
             if srv.state != "ready":
                 raise FileError("El servidor todavía se está preparando")
 
-            # Cualquiera puede encender; apagar y reiniciar solo el dueno o el admin
+            # Cualquiera puede encender (si el admin lo permite); apagar y
+            # reiniciar solo el dueno o el admin
             if action != "start" and not manage:
+                return self.deny(user)
+
+            if not manage and not public_ok(user):
                 return self.deny(user)
 
             if action in ("stop", "restart"):
@@ -13020,6 +14496,18 @@ class Handler(BaseHTTPRequestHandler):
 
         elif path == "/server/update":
             self.send_json(update_server_config(srv, self.json_body(4096), user))
+
+        elif path == "/server/motd":
+            self.send_json(set_motd(srv, self.json_body(4096).get("motd", ""), user))
+
+        elif path == "/mods/add":
+            self.send_json(add_mod(self.json_body(4096), user))
+
+        elif path == "/mods/remove":
+            self.send_json(remove_mod(self.json_body(4096), user))
+
+        elif path == "/mods/apply":
+            self.send_json(apply_pending(srv, user))
 
         elif path == "/server/delete":
             data = self.json_body(4096)

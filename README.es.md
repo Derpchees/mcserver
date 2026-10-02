@@ -9,7 +9,8 @@ Cada persona crea su cuenta desde la pantalla de entrar y, en el mismo paso, su 
 ## Funciones
 
 - **Cuentas y servidores**
-  - La primera vez que abres el panel, un asistente crea al administrador.
+  - La primera vez que abres el panel, un asistente crea la primera cuenta: el **dueño del sistema**, un administrador total que nadie más puede cambiar ni borrar. Solo él puede cambiar roles y desinstalar.
+  - En ese asistente eliges si los visitantes sin cuenta pueden ver y encender servidores.
   - Después cualquiera puede registrarse y crear su servidor, dentro de los límites que fija el administrador. El registro se puede desactivar.
 - **Quién puede hacer qué**
 
@@ -22,6 +23,9 @@ Cada persona crea su cuenta desde la pantalla de entrar y, en el mismo paso, su 
 
 - **Panel principal**: estado, jugadores en línea con su skin, la cuenta regresiva del apagado automático y un monitor de recursos (CPU, memoria, temperaturas, almacenamiento por disco).
 - **Consola y chat**: lado a lado en computadora, con pestañas en celular. Incluye el historial del chat del servidor.
+- **Mods y plugins de CurseForge**: busca y agrega mods de servidor (los que son solo de cliente se ocultan) o plugins para Paper, y crea servidores a partir de modpacks de CurseForge. Requiere una clave de API gratuita que el administrador agrega en Administración.
+- **Mensaje del servidor (MOTD)**: se edita junto al estado del servidor, con paleta de colores y estilos de Minecraft y vista previa.
+- **Servidor favorito**: la estrella junto a Iniciar hace que el panel abra ese servidor. Se guarda en tu cuenta o, sin sesión, en el navegador.
 - **Jugadores**: todos los que han entrado, con su skin en 3D. Expulsar, banear, suspensión temporal, mensajes privados, modo de juego, teletransporte, operador y lista blanca.
 - **Archivos**: arrastrar y soltar en cualquier parte (también carpetas), selección múltiple, mover, renombrar, descarga en ZIP y editor de texto.
 - **Respaldos**: diarios y manuales. El mundo se pausa mientras se copia para que el respaldo quede consistente.

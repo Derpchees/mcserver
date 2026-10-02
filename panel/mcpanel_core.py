@@ -86,7 +86,7 @@ DOCKER_NETWORK = cfg("DOCKER_NETWORK", "mcpanel-net")
 
 DB_PATH = os.path.join(STATE_ROOT, "mcpanel.db")
 
-SERVER_TYPES = ("FORGE", "NEOFORGE", "FABRIC", "PAPER", "VANILLA")
+SERVER_TYPES = ("FORGE", "NEOFORGE", "FABRIC", "PAPER", "VANILLA", "AUTO_CURSEFORGE")
 
 # Variable del contenedor que fija la version del cargador de cada tipo
 LOADER_ENV = {
@@ -118,6 +118,7 @@ CREATE TABLE IF NOT EXISTS users (
     username TEXT NOT NULL UNIQUE COLLATE NOCASE,
     password TEXT NOT NULL,
     role TEXT NOT NULL DEFAULT 'user',
+    default_server INTEGER,
     created INTEGER NOT NULL
 );
 
@@ -188,6 +189,11 @@ def db():
                 if "java" not in columns:
                     conn.execute("ALTER TABLE servers ADD COLUMN java TEXT NOT NULL DEFAULT ''")
 
+                user_columns = {row[1] for row in conn.execute("PRAGMA table_info(users)")}
+
+                if "default_server" not in user_columns:
+                    conn.execute("ALTER TABLE users ADD COLUMN default_server INTEGER")
+
                 _db_ready = True
 
     return conn
@@ -230,7 +236,10 @@ def default_settings():
         "max_cpu": "0",
         "public_host": PUBLIC_HOST,
         "max_servers_per_user": "1",
-        "default_server": ""
+        "default_server": "",
+        "public_access": "yes",
+        "cf_api_key": "",
+        "owner_id": ""
     }
 
 
@@ -288,6 +297,17 @@ def verify_password(password, stored):
     ).hex()
 
     return hmac.compare_digest(digest, expected)
+
+
+def owner_id():
+    # Dueno del sistema: el primer usuario (el que hizo la configuracion inicial)
+    value = get_setting("owner_id")
+
+    if value.isdigit() and get_user(int(value)):
+        return int(value)
+
+    row = query("SELECT MIN(id) AS n FROM users WHERE role = 'admin'", one=True)
+    return row["n"] if row else None
 
 
 def user_count():
@@ -405,7 +425,8 @@ class Server:
             "state": self.state,
             "state_detail": self.state_detail,
             "loader": self.extra_env.get(LOADER_ENV.get(self.type, ""), ""),
-            "java": self.java
+            "java": self.java,
+            "modpack": self.extra_env.get("CF_SLUG", "")
         }
 
 
@@ -579,7 +600,6 @@ def build_container(srv, start=False):
         "-e", "UID=%d" % MC_UID,
         "-e", "GID=%d" % MC_GID,
         "-e", "TZ=" + tz,
-        "-e", "MOTD=" + srv.name,
         "--stop-timeout", "60",
         "--restart", "no" if srv.autostop else "unless-stopped"
     ]
@@ -589,6 +609,13 @@ def build_container(srv, start=False):
 
     for key, value in sorted(srv.extra_env.items()):
         args += ["-e", "%s=%s" % (key, value)]
+
+    # CurseForge necesita la clave de API para modpacks y mods
+    if srv.type == "AUTO_CURSEFORGE" or "CURSEFORGE_FILES" in srv.extra_env:
+        key = get_setting("cf_api_key")
+
+        if key:
+            args += ["-e", "CF_API_KEY=" + key]
 
     if srv.cpu and srv.cpu > 0:
         args += ["--cpus", str(srv.cpu)]

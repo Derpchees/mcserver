@@ -9,7 +9,8 @@ Each person creates an account from the login page and, in the same step, their 
 ## Features
 
 - **Accounts and servers**
-  - The first time you open the panel, a wizard creates the administrator.
+  - The first time you open the panel, a wizard creates the first account: the **system owner**, a full administrator nobody else can change or delete. Only the owner can change roles and uninstall.
+  - In that wizard you choose whether visitors without an account can see and start servers.
   - Anyone can then sign up and create their server, within limits set by the administrator. Sign-up can be turned off.
 - **Who can do what**
 
@@ -22,6 +23,9 @@ Each person creates an account from the login page and, in the same step, their 
 
 - **Dashboard**: status, online players with their skins, an auto-shutdown countdown and a resource monitor (CPU, memory, temperatures, per-disk storage).
 - **Console and chat**: side by side on a computer, tabs on a phone. Includes the server chat history.
+- **CurseForge mods and plugins**: search and add server-side mods (client-only mods are hidden) or plugins for Paper, and create servers from CurseForge modpacks. Needs a free API key that an administrator adds in Administration.
+- **Server message (MOTD)**: edited next to the server status, with Minecraft colors, styles and a live preview.
+- **Favorite server**: the star next to Start makes the panel open that server. It is saved in your account or, without logging in, in the browser.
 - **Players**: everyone who has joined, with a 3D skin. Kick, ban, temporary suspension, private messages, game mode, teleport, operator and whitelist.
 - **Files**: drag and drop anywhere (folders too), multi-select, move, rename, ZIP download and a text editor.
 - **Backups**: daily and manual. The world is paused while copying so the backup stays consistent.
