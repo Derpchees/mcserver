@@ -3341,48 +3341,64 @@ def set_mod_slugs(slugs):
     return request_rebuild(fresh)
 
 
+PLUGIN_LOADERS = {"paper", "spigot", "bukkit", "purpur", "folia"}
+
+
 def add_mods(data, user):
     # Agrega varios a la vez: elegidos en la busqueda (items) y/o una
-    # lista pegada (text). Todo se aplica en una sola recreacion.
+    # lista pegada (text). Cada proyecto se comprueba con Modrinth: debe
+    # funcionar en el servidor y ser del tipo correcto (mod o plugin).
     if S().type not in MOD_KIND:
         raise FileError("Este tipo de servidor no admite mods ni plugins")
 
     plugins = MOD_KIND[S().type] == "plugins"
-    wanted = []
-    skipped = []
+    loader = MODRINTH_LOADER.get(S().type)
+    tokens = []
 
     for item in data.get("items") or []:
         if isinstance(item, dict) and PROJECT_ID.match(str(item.get("slug", ""))):
-            wanted.append({
-                "slug": str(item["slug"]),
-                "name": str(item.get("name") or item["slug"])[:80],
-                "icon": str(item.get("icon") or "")[:400],
-                "env": str(item.get("env") or "")[:10]
-            })
+            tokens.append(str(item["slug"]))
 
-    tokens = parse_project_tokens(data.get("text", ""))
+    for token in parse_project_tokens(data.get("text", "")):
+        if token not in tokens:
+            tokens.append(token)
+
+    tokens = tokens[:150]
+    found = {}
 
     if tokens:
-        found = {}
-
         for project in modrinth_get("/projects", {"ids": json.dumps(tokens)}) or []:
             for key in (project.get("slug"), project.get("id")):
                 if key:
                     found[key] = project
 
-        for token in tokens:
-            project = found.get(token)
+    wanted = []
+    skipped = []
 
-            if not project:
-                skipped.append({"name": token, "reason": "not_found"})
-                continue
+    for token in tokens:
+        project = found.get(token)
 
-            if not plugins and modrinth_env(project.get("server_side")) == "client":
-                skipped.append({"name": project.get("title") or token, "reason": "client"})
-                continue
+        if not project:
+            skipped.append({"name": token, "reason": "not_found"})
+            continue
 
-            item = modrinth_item(project)
-            wanted.append({"slug": item["slug"], "name": item["name"], "icon": item["icon"], "env": item["env"]})
+        name = project.get("title") or token
+        loaders = set(project.get("loaders") or [])
+
+        if plugins and not (loaders & PLUGIN_LOADERS):
+            skipped.append({"name": name, "reason": "not_plugin"})
+            continue
+
+        if not plugins and loader and loader not in loaders:
+            skipped.append({"name": name, "reason": "wrong_loader"})
+            continue
+
+        if not plugins and modrinth_env(project.get("server_side")) == "client":
+            skipped.append({"name": name, "reason": "client"})
+            continue
+
+        item = modrinth_item(project)
+        wanted.append({"slug": item["slug"], "name": item["name"], "icon": item["icon"], "env": item["env"]})
 
     slugs = mod_slugs()
     meta = read_json_file(mods_meta_path(), {})
@@ -7987,6 +8003,8 @@ const I18N = {
         "mods.skippedTitle": "Some were not added",
         "mods.skipClient": "client-only mod, it does not run on the server",
         "mods.skipMissing": "not found on Modrinth",
+        "mods.skipNotPlugin": "it is a mod, not a plugin; this server only takes plugins",
+        "mods.skipLoader": "it is not made for this server loader",
         "mods.copyList": "Copy list",
         "mods.selectAll": "Select all",
         "mods.projectsTitle2": "Added from Modrinth",
@@ -8632,6 +8650,8 @@ const I18N = {
         "mods.skippedTitle": "Algunos no se agregaron",
         "mods.skipClient": "mod solo de cliente, no funciona en el servidor",
         "mods.skipMissing": "no se encontró en Modrinth",
+        "mods.skipNotPlugin": "es un mod, no un plugin; este servidor solo acepta plugins",
+        "mods.skipLoader": "no está hecho para el cargador de este servidor",
         "mods.copyList": "Copiar lista",
         "mods.selectAll": "Seleccionar todo",
         "mods.projectsTitle2": "Agregados desde Modrinth",
@@ -12642,6 +12662,15 @@ function resetServerCaches() {
     $("online").dataset.key = "";
     $("console").textContent = "";
     $("chat").textContent = "";
+
+    // Mods: cada servidor tiene su tipo, version y lista
+    modsData = null;
+    modsPicked.clear();
+    modsRemove.clear();
+    filesRemove.clear();
+    ["modsResults", "modpackResults", "modsProjects", "modsFiles"].forEach(function(id) { $(id).textContent = ""; });
+    ["modsQuery", "modpackQuery", "modsPaste"].forEach(function(id) { $(id).value = ""; });
+    $("modsPickedBar").hidden = true;
 }
 
 
@@ -14005,7 +14034,12 @@ function compactNumber(n) {
 
 async function loadMods() {
     try {
-        modsData = await api("/mods?t=" + Date.now());
+        const started = currentServer;
+        const data = await api("/mods?t=" + Date.now());
+
+        if (currentServer !== started) return;
+
+        modsData = data;
         modsRemove.clear();
         filesRemove.clear();
         renderMods();
@@ -14202,7 +14236,11 @@ async function searchMods(event) {
     box.append(el("div", "list-empty", t("form.loading")));
 
     try {
+        const started = currentServer;
         const data = await api("/mods/search?q=" + encodeURIComponent($("modsQuery").value.trim()));
+
+        // Si se cambio de servidor mientras buscaba, se descarta
+        if (currentServer !== started) return;
         const added = new Set((modsData.projects || []).map(function(p) { return p.slug; }));
 
         box.textContent = "";
@@ -14269,7 +14307,7 @@ async function addMods(body) {
 
         if (data.skipped.length) {
             const lines = data.skipped.map(function(s) {
-                return s.name + ": " + t(s.reason === "client" ? "mods.skipClient" : "mods.skipMissing");
+                return s.name + ": " + t({ client: "mods.skipClient", not_plugin: "mods.skipNotPlugin", wrong_loader: "mods.skipLoader" }[s.reason] || "mods.skipMissing");
             });
             openModal({ title: t("mods.skippedTitle"), body: lines, okText: t("modal.ok"), hideCancel: true });
         }
@@ -14341,8 +14379,11 @@ async function searchModpacks(event) {
     box.append(el("div", "list-empty", t("form.loading")));
 
     try {
+        const started = currentServer;
         const response = await fetch("/modpacks?q=" + encodeURIComponent($("modpackQuery").value.trim()));
         const data = await response.json();
+
+        if (currentServer !== started) return;
         box.textContent = "";
 
         if (data.ok === false) {
