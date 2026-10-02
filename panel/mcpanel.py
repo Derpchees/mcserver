@@ -5761,6 +5761,23 @@ h1 {
     opacity: .85;
 }
 
+.subtitle.motd-inline {
+    display: inline-block;
+    max-width: 360px;
+    margin-top: 3px;
+    padding: 1px 8px;
+    border-radius: 6px;
+    background: #141414;
+    color: #AAAAAA;
+    font-family: "Minecraftia", var(--mono);
+    font-size: 12px;
+    text-shadow: 1px 1px 0 rgba(0, 0, 0, .55);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    vertical-align: top;
+}
+
 /* ---------- Animaciones ---------- */
 
 @keyframes rise {
@@ -9239,6 +9256,7 @@ async function update() {
 
         currentMotd = data.motd || "";
         renderMcText($("motdView"), currentMotd);
+        renderServerHeader();
 
         if (wasManage && !canManageCurrent && activeTab !== "panel") showTab("panel");
 
@@ -10118,8 +10136,7 @@ function applyManageUI() {
     $("restart").hidden = !manage;
     $("consoleCard").hidden = !manage;
     $("address").textContent = info ? info.address : "-";
-    $("appSubtitle").textContent = info ? info.name : "";
-    document.title = info ? info.name + " · " + (authState ? authState.system_name : "") : document.title;
+    renderServerHeader();
 
     if (consoleLocked === manage) setConsoleLocked(!manage);
 
@@ -12656,7 +12673,9 @@ function showView(name) {
     $("homeBtn").hidden = name === "home";
     renderAccountArea();
     $("homeBtn").classList.toggle("active", false);
+    $("appSubtitle").classList.remove("motd-inline");
     $("appSubtitle").textContent = t("nav." + (name === "signup" || name === "setup" ? name : name));
+    document.title = authState ? authState.system_name : document.title;
 
     if (name === "home") loadServers();
     if (name === "login" || name === "signup" || name === "setup") renderAuth(name);
@@ -13963,6 +13982,37 @@ function renderMcText(target, text) {
     if (!target.childNodes.length) {
         target.append(el("span", "motd-empty", t("motd.empty")));
     }
+}
+
+
+// Encabezado y titulo de la pestana: el MOTD del servidor abierto
+function plainMotd(text) {
+    return String(text || "").replace(/§[0-9a-fk-or]/gi, "")
+        .split("\n").map(function(line) { return line.trim(); }).filter(Boolean).join(" · ");
+}
+
+
+function renderServerHeader() {
+
+    const info = currentServerInfo;
+    const sub = $("appSubtitle");
+    const system = authState ? authState.system_name : "MCServer";
+
+    if (!info || currentView !== "server") return;
+
+    const plain = plainMotd(currentMotd);
+
+    if (plain) {
+        sub.classList.add("motd-inline");
+        renderMcText(sub, currentMotd.replace(/\n/g, " "));
+        sub.title = plain;
+    } else {
+        sub.classList.remove("motd-inline");
+        sub.textContent = info.name;
+        sub.title = "";
+    }
+
+    document.title = (plain || info.name) + " · " + system;
 }
 
 
