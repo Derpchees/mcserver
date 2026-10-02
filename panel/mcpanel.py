@@ -5778,6 +5778,17 @@ h1 {
     vertical-align: top;
 }
 
+.header-left {
+    display: flex;
+    align-items: flex-end;
+    gap: 6px;
+    min-width: 0;
+}
+
+.header-left .motd-edit {
+    margin-bottom: 1px;
+}
+
 /* ---------- Animaciones ---------- */
 
 @keyframes rise {
@@ -6649,6 +6660,7 @@ body,
 
 <header>
 
+<div class="header-left">
 <a class="brand" href="#/" data-i18n-title="nav.toList" title="All servers">
 <div class="logo"><div class="grass"></div><div class="dirt"></div></div>
 <div>
@@ -6656,6 +6668,10 @@ body,
 <div id="appSubtitle" class="subtitle">Minecraft</div>
 </div>
 </a>
+<button id="motdEdit" class="icon-btn motd-edit" data-i18n-title="motd.edit" title="Edit server message" onclick="editMotd()" hidden>
+<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>
+</button>
+</div>
 
 <div class="header-right">
 
@@ -6885,12 +6901,6 @@ body,
 </button>
 </div>
 
-<div class="motd-box">
-<div id="motdView" class="motd"></div>
-<button id="motdEdit" class="icon-btn motd-edit" data-i18n-title="motd.edit" title="Edit server message" onclick="editMotd()" hidden>
-<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>
-</button>
-</div>
 
 </div>
 
@@ -9255,7 +9265,6 @@ async function update() {
         applyManageUI();
 
         currentMotd = data.motd || "";
-        renderMcText($("motdView"), currentMotd);
         renderServerHeader();
 
         if (wasManage && !canManageCurrent && activeTab !== "panel") showTab("panel");
@@ -12670,6 +12679,7 @@ function showView(name) {
     renderAccountArea();
     $("homeBtn").classList.toggle("active", false);
     $("appSubtitle").classList.remove("motd-inline");
+    $("motdEdit").hidden = true;
     $("appSubtitle").textContent = t("nav." + (name === "signup" || name === "setup" ? name : name));
     document.title = authState ? authState.system_name : document.title;
 
