@@ -2341,9 +2341,10 @@ def create_server_for(user, data):
     srv = core.create_server_row(owner_id=user["id"], type_=type_, **fields)
     log_server_action(srv, "servidor creado por " + user["username"])
 
-    # Mensaje inicial en la lista multijugador: el nombre del servidor
+    # Mensaje inicial en la lista multijugador (el nombre) e icono propio
     try:
         set_motd(srv, srv.name, None)
+        write_server_icon(srv)
     except OSError:
         pass
     build_in_background(srv, start=True)
@@ -3492,6 +3493,128 @@ def clear_modpack(user):
     log_server_action(fresh, "%s quitó el modpack" % user["username"])
 
     return {"ok": True, "message": "Modpack quitado", "applied": applied, "type": prev["type"]}
+
+
+
+
+# ============================================================
+# Icono de cada servidor
+# ============================================================
+#
+# Bloque pixelado de 8x8 generado a partir del slug. El mismo algoritmo
+# esta en la pagina (serverIconPixels), asi que el icono del panel y el
+# server-icon.png que ven los jugadores son identicos. El tono nunca cae
+# en el verde del icono del sistema (bloque de pasto).
+
+ICON_GRASS_HUES = (70, 150)
+
+
+def _icon_hash(text):
+    h = 2166136261
+
+    for ch in text:
+        h ^= ord(ch)
+        h = (h * 16777619) & 0xFFFFFFFF
+
+    return h
+
+
+def _icon_rng(seed):
+    state = [seed & 0xFFFFFFFF]
+
+    def imul(a, b):
+        return (a * b) & 0xFFFFFFFF
+
+    def nxt():
+        state[0] = (state[0] + 0x6D2B79F5) & 0xFFFFFFFF
+        t = state[0]
+        t = imul(t ^ (t >> 15), t | 1)
+        t ^= (t + imul(t ^ (t >> 7), t | 61)) & 0xFFFFFFFF
+        return ((t ^ (t >> 14)) & 0xFFFFFFFF) / 4294967296
+
+    return nxt
+
+
+def _hsl(h, s, l):
+    s /= 100
+    l /= 100
+    c = (1 - abs(2 * l - 1)) * s
+    x = c * (1 - abs((h / 60) % 2 - 1))
+    m = l - c / 2
+    r, g, b = [(c, x, 0), (x, c, 0), (0, c, x), (0, x, c), (x, 0, c), (c, 0, x)][int(h // 60) % 6]
+    # Redondeo hacia arriba en .5, igual que Math.round de la pagina
+    return (int((r + m) * 255 + 0.5), int((g + m) * 255 + 0.5), int((b + m) * 255 + 0.5))
+
+
+def server_icon_pixels(slug):
+    seed = _icon_hash(slug or "server")
+    hue = seed % 360
+
+    if ICON_GRASS_HUES[0] <= hue <= ICON_GRASS_HUES[1]:
+        hue = (hue + 110) % 360
+
+    rand = _icon_rng(seed)
+    base = (hue + 30) % 360
+    top = [_hsl(hue, 62, 52), _hsl(hue, 62, 44), _hsl(hue, 58, 60)]
+    bottom = [_hsl(base, 38, 34), _hsl(base, 38, 28), _hsl(base, 34, 40)]
+    pixels = []
+
+    for y in range(8):
+        for x in range(8):
+            palette = top if y < 3 else bottom
+            value = int(rand() * 3)
+
+            # La capa de arriba "escurre" un poco sobre la de abajo
+            if y == 3 and rand() < 0.35:
+                palette = top
+
+            pixels.append(palette[value])
+
+    return pixels
+
+
+def server_icon_png(slug, size=64):
+    import struct
+    import zlib
+
+    pixels = server_icon_pixels(slug)
+    scale = size // 8
+    rows = []
+
+    for y in range(size):
+        row = bytearray([0])
+
+        for x in range(size):
+            row.extend(pixels[(y // scale) * 8 + (x // scale)])
+
+        rows.append(bytes(row))
+
+    def chunk(kind, data):
+        return (struct.pack(">I", len(data)) + kind + data
+                + struct.pack(">I", zlib.crc32(kind + data) & 0xFFFFFFFF))
+
+    return (b"\x89PNG\r\n\x1a\n"
+            + chunk(b"IHDR", struct.pack(">IIBBBBB", size, size, 8, 2, 0, 0, 0))
+            + chunk(b"IDAT", zlib.compress(b"".join(rows), 9))
+            + chunk(b"IEND", b""))
+
+
+def write_server_icon(srv, overwrite=False):
+    # Solo si no tiene uno: no se pisa un icono que el dueno haya subido
+    path = os.path.join(srv.data_dir, "server-icon.png")
+
+    if os.path.exists(path) and not overwrite:
+        return False
+
+    srv.ensure_dirs()
+
+    with open(path + ".tmp", "wb") as f:
+        f.write(server_icon_png(srv.slug))
+
+    os.chmod(path + ".tmp", 0o664)
+    give_to_server(path + ".tmp")
+    os.replace(path + ".tmp", path)
+    return True
 
 
 HTML = r"""
@@ -5787,6 +5910,17 @@ h1 {
 
 .header-left .motd-edit {
     margin-bottom: 1px;
+}
+
+.logo.logo-server {
+    display: block;
+}
+
+.logo-img {
+    display: block;
+    width: 100%;
+    height: 100%;
+    image-rendering: pixelated;
 }
 
 /* ---------- Animaciones ---------- */
@@ -12680,6 +12814,7 @@ function showView(name) {
     $("homeBtn").classList.toggle("active", false);
     $("appSubtitle").classList.remove("motd-inline");
     $("motdEdit").hidden = true;
+    setBrandIcon(null);
     $("appSubtitle").textContent = t("nav." + (name === "signup" || name === "setup" ? name : name));
     document.title = authState ? authState.system_name : document.title;
 
@@ -12891,8 +13026,8 @@ function renderServers(servers) {
         const card = el("div", "srv-card");
 
         const top = el("div", "srv-top");
-        const logo = el("div", "logo srv-logo");
-        logo.append(el("div", "grass"), el("div", "dirt"));
+        const logo = el("div", "logo srv-logo logo-server");
+        logo.append(serverIconEl(server.slug, "logo-img"));
         const titles = el("div", "srv-titles");
         const nameEl = el("div", "srv-name", server.name);
 
@@ -14020,6 +14155,8 @@ function renderServerHeader() {
 
     if (!info || currentView !== "server") return;
 
+    setBrandIcon(info.slug);
+
     const plain = plainMotd(currentMotd);
 
     if (plain) {
@@ -14557,6 +14694,128 @@ async function applyMods() {
         setTimeout(loadMods, 1500);
     } catch (error) {
         if (error.message !== "auth") showToast(error.message, "red");
+    }
+}
+
+
+// ============================================================
+// Icono de cada servidor (mismo algoritmo que server_icon_pixels)
+// ============================================================
+
+function iconHash(text) {
+    let h = 2166136261;
+
+    for (let i = 0; i < text.length; i++) {
+        h ^= text.charCodeAt(i);
+        h = Math.imul(h, 16777619) >>> 0;
+    }
+
+    return h >>> 0;
+}
+
+
+function iconRng(seed) {
+    let a = seed >>> 0;
+
+    return function() {
+        a = (a + 0x6D2B79F5) >>> 0;
+        let t = a;
+        t = Math.imul(t ^ (t >>> 15), t | 1) >>> 0;
+        t = (t ^ ((t + Math.imul(t ^ (t >>> 7), t | 61)) >>> 0)) >>> 0;
+        return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+}
+
+
+function iconHsl(h, s, l) {
+    s /= 100;
+    l /= 100;
+    const c = (1 - Math.abs(2 * l - 1)) * s;
+    const x = c * (1 - Math.abs((h / 60) % 2 - 1));
+    const m = l - c / 2;
+    const [r, g, b] = [[c, x, 0], [x, c, 0], [0, c, x], [0, x, c], [x, 0, c], [c, 0, x]][Math.floor(h / 60) % 6];
+    return [Math.round((r + m) * 255), Math.round((g + m) * 255), Math.round((b + m) * 255)];
+}
+
+
+function serverIconPixels(slug) {
+
+    const seed = iconHash(slug || "server");
+    let hue = seed % 360;
+
+    // Nunca el verde del icono del sistema
+    if (hue >= 70 && hue <= 150) hue = (hue + 110) % 360;
+
+    const rand = iconRng(seed);
+    const base = (hue + 30) % 360;
+    const top = [iconHsl(hue, 62, 52), iconHsl(hue, 62, 44), iconHsl(hue, 58, 60)];
+    const bottom = [iconHsl(base, 38, 34), iconHsl(base, 38, 28), iconHsl(base, 34, 40)];
+    const pixels = [];
+
+    for (let y = 0; y < 8; y++) {
+        for (let x = 0; x < 8; x++) {
+            let palette = y < 3 ? top : bottom;
+            const value = Math.floor(rand() * 3);
+
+            if (y === 3 && rand() < 0.35) palette = top;
+
+            pixels.push(palette[value]);
+        }
+    }
+
+    return pixels;
+}
+
+
+function serverIconSvg(slug) {
+
+    const pixels = serverIconPixels(slug);
+    let rects = "";
+
+    pixels.forEach(function(rgb, i) {
+        rects += '<rect x="' + (i % 8) + '" y="' + Math.floor(i / 8) + '" width="1" height="1" fill="rgb(' + rgb.join(",") + ')"/>';
+    });
+
+    return '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 8 8" shape-rendering="crispEdges">' + rects + '</svg>';
+}
+
+
+function serverIconUrl(slug) {
+    return "data:image/svg+xml," + encodeURIComponent(serverIconSvg(slug));
+}
+
+
+function serverIconEl(slug, className) {
+    const img = document.createElement("img");
+    img.className = className;
+    img.alt = "";
+    img.src = serverIconUrl(slug);
+    return img;
+}
+
+
+// Logo del encabezado y de la pestana: el del servidor abierto o el del sistema
+const SYSTEM_FAVICON = (document.querySelector('link[rel="icon"]') || {}).href || "";
+
+function setBrandIcon(slug) {
+
+    const logo = document.querySelector(".brand .logo");
+    const favicon = document.querySelector('link[rel="icon"]');
+    const key = slug || "";
+
+    if (logo.dataset.icon === key) return;
+    logo.dataset.icon = key;
+
+    logo.textContent = "";
+
+    if (slug) {
+        logo.classList.add("logo-server");
+        logo.append(serverIconEl(slug, "logo-img"));
+        if (favicon) favicon.href = serverIconUrl(slug);
+    } else {
+        logo.classList.remove("logo-server");
+        logo.append(el("div", "grass"), el("div", "dirt"));
+        if (favicon) favicon.href = SYSTEM_FAVICON;
     }
 }
 
