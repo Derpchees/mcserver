@@ -973,7 +973,15 @@ def chat_rate_limited(ip):
         return False
 
 
-def send_chat(text):
+CHAT_ROLES = {
+    # Etiqueta y color en el juego segun quien escribe desde el panel
+    "server": ("Server", "green"),
+    "user": (None, "aqua"),
+    "guest": (None, "gray")
+}
+
+
+def send_chat(text, role="server", username=None):
     # Quita saltos de linea y caracteres de control
     text = re.sub(r"[\x00-\x1f\x7f]", " ", text or "").strip()[:CHAT_MAX_CHARS]
 
@@ -985,8 +993,15 @@ def send_chat(text):
     if running != "true":
         return {"ok": False, "message": "El servidor está apagado"}
 
+    label, color = CHAT_ROLES.get(role, CHAT_ROLES["guest"])
+
+    if role == "user":
+        label = username or "?"
+    elif role == "guest":
+        label = "Invitado" if DEFAULT_LANG == "es" else "Guest"
+
     payload = json.dumps(
-        ["", {"text": "[Server] ", "color": "green"}, {"text": text}],
+        ["", {"text": "[%s] " % label, "color": color}, {"text": text}],
         ensure_ascii=False
     )
 
@@ -1010,7 +1025,8 @@ def send_chat(text):
             f.write(json.dumps({
                 "ts": int(time.time()),
                 "type": "say",
-                "name": "Server",
+                "name": label,
+                "role": role,
                 "text": text
             }, ensure_ascii=False) + "\n")
 
@@ -3501,12 +3517,15 @@ def clear_modpack(user):
 # Icono de cada servidor
 # ============================================================
 #
-# Bloque pixelado de 8x8 generado a partir del slug. El mismo algoritmo
+# Un bloque real de Minecraft elegido a partir del slug. El mismo algoritmo
 # esta en la pagina (serverIconPixels), asi que el icono del panel y el
-# server-icon.png que ven los jugadores son identicos. El tono nunca cae
-# en el verde del icono del sistema (bloque de pasto).
+# server-icon.png que ven los jugadores son identicos.
 
-ICON_GRASS_HUES = (70, 150)
+# Bloques reales de Minecraft en el estilo del logo: bandas horizontales
+# (filas de una cuadricula de 12) divididas en franjas verticales. El
+# bloque de pasto normal no esta: es el icono del sistema.
+ICON_GRID = 12
+ICON_BLOCKS = json.loads(r'''[{"name":"Mycelium","bands":[[3,["#7b6e83","#6a5f75","#85788c","#71667a"]],[9,["#8a5a3b","#7a4e33","#936240"]]]},{"name":"Podzol","bands":[[3,["#7a5a2b","#6b4e24","#866331","#71532a"]],[9,["#8a5a3b","#7a4e33","#936240"]]]},{"name":"Snowy Grass Block","bands":[[3,["#f2f6f6","#e3eaea","#ffffff","#e9efef"]],[9,["#8a5a3b","#7a4e33","#936240"]]]},{"name":"Dirt Path","bands":[[3,["#9c8148","#8b733f","#a88b4f","#937944"]],[9,["#8a5a3b","#7a4e33","#936240"]]]},{"name":"Crimson Nylium","bands":[[3,["#a31f1f","#8e1a1a","#b32525","#961c1c"]],[9,["#6f2b2b","#5e2424","#7a3131"]]]},{"name":"Warped Nylium","bands":[[3,["#2b7f78","#236b65","#33908a","#28746e"]],[9,["#6f2b2b","#5e2424","#7a3131"]]]},{"name":"TNT","bands":[[4,["#c93a2b","#b53325","#d2422f","#bc3628"]],[4,["#e8e2d6","#d8d2c6","#f0ebe0"]],[4,["#c93a2b","#b53325","#d2422f","#bc3628"]]]},{"name":"Bookshelf","bands":[[2,["#a2834f","#8f7343","#ae8e57"]],[8,["#8b2e2e","#2e4a8b","#c9a33c","#6b3f8f"]],[2,["#a2834f","#8f7343","#ae8e57"]]]},{"name":"Oak Log","bands":[[12,["#6b5232","#5a4429","#745a37","#614a2d"]]]},{"name":"Birch Log","bands":[[12,["#d9d6c9","#e9e6da","#3e3a33","#dcd9cc"]]]},{"name":"Stone","bands":[[12,["#7f7f7f","#727272","#8a8a8a"]]]},{"name":"Cobblestone","bands":[[12,["#7a7a7a","#5f5f5f","#8c8c8c","#6a6a6a"]]]},{"name":"Deepslate","bands":[[12,["#4a4a50","#3e3e44","#55555b"]]]},{"name":"Sand","bands":[[12,["#dbcf9f","#d0c493","#e3d8aa"]]]},{"name":"Netherrack","bands":[[12,["#6f2b2b","#5e2424","#7a3131"]]]},{"name":"End Stone","bands":[[12,["#e8edb0","#dce2a3","#f0f4be"]]]},{"name":"Obsidian","bands":[[12,["#1c1426","#140e1c","#251b33"]]]},{"name":"Glowstone","bands":[[12,["#f2c76a","#d9a94f","#fbe39a"]]]},{"name":"Ice","bands":[[12,["#9ec2f7","#8db4ee","#b0cefa"]]]},{"name":"Pumpkin","bands":[[12,["#d9832b","#c27327","#e0912f","#ca7a28"]]]},{"name":"Block of Gold","bands":[[12,["#f9d849","#e8c238","#fce36a"]]]},{"name":"Block of Diamond","bands":[[12,["#5de1d9","#4ccbc3","#7aebe4"]]]},{"name":"Block of Copper","bands":[[12,["#c0694a","#ae5d41","#cb7655"]]]},{"name":"Block of Amethyst","bands":[[12,["#8b5fc4","#7a51b0","#9c70d3"]]]},{"name":"Honey Block","bands":[[12,["#f6b23c","#e8a132","#fbc257"]]]}]''')
 
 
 def _icon_hash(text):
@@ -3519,56 +3538,19 @@ def _icon_hash(text):
     return h
 
 
-def _icon_rng(seed):
-    state = [seed & 0xFFFFFFFF]
-
-    def imul(a, b):
-        return (a * b) & 0xFFFFFFFF
-
-    def nxt():
-        state[0] = (state[0] + 0x6D2B79F5) & 0xFFFFFFFF
-        t = state[0]
-        t = imul(t ^ (t >> 15), t | 1)
-        t ^= (t + imul(t ^ (t >> 7), t | 61)) & 0xFFFFFFFF
-        return ((t ^ (t >> 14)) & 0xFFFFFFFF) / 4294967296
-
-    return nxt
-
-
-def _hsl(h, s, l):
-    s /= 100
-    l /= 100
-    c = (1 - abs(2 * l - 1)) * s
-    x = c * (1 - abs((h / 60) % 2 - 1))
-    m = l - c / 2
-    r, g, b = [(c, x, 0), (x, c, 0), (0, c, x), (0, x, c), (x, 0, c), (c, 0, x)][int(h // 60) % 6]
-    # Redondeo hacia arriba en .5, igual que Math.round de la pagina
-    return (int((r + m) * 255 + 0.5), int((g + m) * 255 + 0.5), int((b + m) * 255 + 0.5))
+def server_icon_block(slug):
+    return ICON_BLOCKS[_icon_hash(slug or "server") % len(ICON_BLOCKS)]
 
 
 def server_icon_pixels(slug):
-    seed = _icon_hash(slug or "server")
-    hue = seed % 360
-
-    if ICON_GRASS_HUES[0] <= hue <= ICON_GRASS_HUES[1]:
-        hue = (hue + 110) % 360
-
-    rand = _icon_rng(seed)
-    base = (hue + 30) % 360
-    top = [_hsl(hue, 62, 52), _hsl(hue, 62, 44), _hsl(hue, 58, 60)]
-    bottom = [_hsl(base, 38, 34), _hsl(base, 38, 28), _hsl(base, 34, 40)]
     pixels = []
 
-    for y in range(8):
-        for x in range(8):
-            palette = top if y < 3 else bottom
-            value = int(rand() * 3)
+    for rows, colors in server_icon_block(slug)["bands"]:
+        rgb = [tuple(int(c[i:i + 2], 16) for i in (1, 3, 5)) for c in colors]
 
-            # La capa de arriba "escurre" un poco sobre la de abajo
-            if y == 3 and rand() < 0.35:
-                palette = top
-
-            pixels.append(palette[value])
+        for _ in range(rows):
+            for x in range(ICON_GRID):
+                pixels.append(rgb[x * len(rgb) // ICON_GRID])
 
     return pixels
 
@@ -3578,14 +3560,13 @@ def server_icon_png(slug, size=64):
     import zlib
 
     pixels = server_icon_pixels(slug)
-    scale = size // 8
     rows = []
 
     for y in range(size):
         row = bytearray([0])
 
         for x in range(size):
-            row.extend(pixels[(y // scale) * 8 + (x // scale)])
+            row.extend(pixels[(y * ICON_GRID // size) * ICON_GRID + (x * ICON_GRID // size)])
 
         rows.append(bytes(row))
 
@@ -5923,6 +5904,31 @@ h1 {
     image-rendering: pixelated;
 }
 
+.command-lock-text {
+    flex: 1;
+    min-width: 0;
+    color: var(--muted);
+    font-size: 13px;
+}
+
+.chat-role-user .chat-name {
+    color: var(--blue);
+}
+
+.chat-role-guest .chat-name {
+    color: var(--muted);
+}
+
+.chat-avatar.user {
+    background: var(--blue-bg);
+    color: var(--blue);
+}
+
+.chat-avatar.guest {
+    background: var(--surface-2);
+    color: var(--muted);
+}
+
 /* ---------- Animaciones ---------- */
 
 @keyframes rise {
@@ -7290,14 +7296,8 @@ onkeydown="onCommandKey(event)"
 <span class="prompt lock">
 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="width:14px;height:14px"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>
 </span>
-<input
-id="consolePassword"
-type="password"
-data-i18n-placeholder="console.pwPlaceholder"
-placeholder="Password to send commands"
-autocomplete="current-password"
->
-<button class="btn btn-ghost btn-small" type="submit" data-i18n="console.unlock">Unlock</button>
+<span id="commandLockText" class="command-lock-text"></span>
+<button id="commandLockBtn" class="btn btn-ghost btn-small" type="submit" data-i18n="auth.login">Log in</button>
 </form>
 
 </div>
@@ -7783,6 +7783,9 @@ const I18N = {
         "console.pwPlaceholder": "Password to send commands",
         "console.unlock": "Unlock",
         "console.unlocked": "Console unlocked",
+        "console.needLogin": "Log in to type commands. Only the server owner or an admin can use them.",
+        "console.needOwner": "Only the server owner or an admin can type commands.",
+        "chat.guest": "Guest",
         "console.lock": "Lock console and files",
         "console.send": "Send",
         "console.cleared": "Console cleared. New messages will appear here.",
@@ -8431,6 +8434,9 @@ const I18N = {
         "console.pwPlaceholder": "Contraseña para enviar comandos",
         "console.unlock": "Desbloquear",
         "console.unlocked": "Consola desbloqueada",
+        "console.needLogin": "Inicia sesión para escribir comandos. Solo el dueño del servidor o un admin puede usarlos.",
+        "console.needOwner": "Solo el dueño del servidor o un admin puede escribir comandos.",
+        "chat.guest": "Invitado",
         "console.lock": "Bloquear consola y archivos",
         "console.send": "Enviar",
         "console.cleared": "Consola limpia. Los nuevos mensajes aparecerán aquí.",
@@ -10273,7 +10279,7 @@ function applyManageUI() {
 
     $("stop").hidden = !manage;
     $("restart").hidden = !manage;
-    $("consoleCard").hidden = !manage;
+    $("consoleCard").hidden = false;
     $("address").textContent = info ? info.address : "-";
     renderServerHeader();
 
@@ -10760,7 +10766,7 @@ function isNarrow() {
 function setConsoleLocked(locked) {
     consoleLocked = locked;
     renderConsoleBars();
-    if (locked) $("consolePassword").value = "";
+
 }
 
 
@@ -10769,6 +10775,11 @@ function renderConsoleBars() {
     // Solo la consola pide contrasena; el chat esta abierto
     $("commandBar").hidden = consoleLocked;
     $("commandLock").hidden = !consoleLocked;
+
+    // Invitado: entrar. Con sesion pero sin permiso: solo el dueno o un admin
+    const guest = !loggedIn();
+    $("commandLockText").textContent = guest ? t("console.needLogin") : t("console.needOwner");
+    $("commandLockBtn").hidden = !guest;
 }
 
 
@@ -12669,7 +12680,7 @@ let currentView = "home";
 const SERVER_SCOPED = /^\/(api|stats|console|chat|files\/|backups|settings|players|mods\b|command|action\/|server\/)/;
 
 // Rutas que cualquiera puede consultar sin ser dueno
-const SERVER_PUBLIC = /^\/(api|stats|action\/start)/;
+const SERVER_PUBLIC = /^\/(api|stats|action\/start|console|chat)/;
 
 
 function scoped(url) {
@@ -14702,6 +14713,10 @@ async function applyMods() {
 // Icono de cada servidor (mismo algoritmo que server_icon_pixels)
 // ============================================================
 
+const ICON_GRID = 12;
+const ICON_BLOCKS = [{"name":"Mycelium","bands":[[3,["#7b6e83","#6a5f75","#85788c","#71667a"]],[9,["#8a5a3b","#7a4e33","#936240"]]]},{"name":"Podzol","bands":[[3,["#7a5a2b","#6b4e24","#866331","#71532a"]],[9,["#8a5a3b","#7a4e33","#936240"]]]},{"name":"Snowy Grass Block","bands":[[3,["#f2f6f6","#e3eaea","#ffffff","#e9efef"]],[9,["#8a5a3b","#7a4e33","#936240"]]]},{"name":"Dirt Path","bands":[[3,["#9c8148","#8b733f","#a88b4f","#937944"]],[9,["#8a5a3b","#7a4e33","#936240"]]]},{"name":"Crimson Nylium","bands":[[3,["#a31f1f","#8e1a1a","#b32525","#961c1c"]],[9,["#6f2b2b","#5e2424","#7a3131"]]]},{"name":"Warped Nylium","bands":[[3,["#2b7f78","#236b65","#33908a","#28746e"]],[9,["#6f2b2b","#5e2424","#7a3131"]]]},{"name":"TNT","bands":[[4,["#c93a2b","#b53325","#d2422f","#bc3628"]],[4,["#e8e2d6","#d8d2c6","#f0ebe0"]],[4,["#c93a2b","#b53325","#d2422f","#bc3628"]]]},{"name":"Bookshelf","bands":[[2,["#a2834f","#8f7343","#ae8e57"]],[8,["#8b2e2e","#2e4a8b","#c9a33c","#6b3f8f"]],[2,["#a2834f","#8f7343","#ae8e57"]]]},{"name":"Oak Log","bands":[[12,["#6b5232","#5a4429","#745a37","#614a2d"]]]},{"name":"Birch Log","bands":[[12,["#d9d6c9","#e9e6da","#3e3a33","#dcd9cc"]]]},{"name":"Stone","bands":[[12,["#7f7f7f","#727272","#8a8a8a"]]]},{"name":"Cobblestone","bands":[[12,["#7a7a7a","#5f5f5f","#8c8c8c","#6a6a6a"]]]},{"name":"Deepslate","bands":[[12,["#4a4a50","#3e3e44","#55555b"]]]},{"name":"Sand","bands":[[12,["#dbcf9f","#d0c493","#e3d8aa"]]]},{"name":"Netherrack","bands":[[12,["#6f2b2b","#5e2424","#7a3131"]]]},{"name":"End Stone","bands":[[12,["#e8edb0","#dce2a3","#f0f4be"]]]},{"name":"Obsidian","bands":[[12,["#1c1426","#140e1c","#251b33"]]]},{"name":"Glowstone","bands":[[12,["#f2c76a","#d9a94f","#fbe39a"]]]},{"name":"Ice","bands":[[12,["#9ec2f7","#8db4ee","#b0cefa"]]]},{"name":"Pumpkin","bands":[[12,["#d9832b","#c27327","#e0912f","#ca7a28"]]]},{"name":"Block of Gold","bands":[[12,["#f9d849","#e8c238","#fce36a"]]]},{"name":"Block of Diamond","bands":[[12,["#5de1d9","#4ccbc3","#7aebe4"]]]},{"name":"Block of Copper","bands":[[12,["#c0694a","#ae5d41","#cb7655"]]]},{"name":"Block of Amethyst","bands":[[12,["#8b5fc4","#7a51b0","#9c70d3"]]]},{"name":"Honey Block","bands":[[12,["#f6b23c","#e8a132","#fbc257"]]]}];
+
+
 function iconHash(text) {
     let h = 2166136261;
 
@@ -14714,54 +14729,27 @@ function iconHash(text) {
 }
 
 
-function iconRng(seed) {
-    let a = seed >>> 0;
-
-    return function() {
-        a = (a + 0x6D2B79F5) >>> 0;
-        let t = a;
-        t = Math.imul(t ^ (t >>> 15), t | 1) >>> 0;
-        t = (t ^ ((t + Math.imul(t ^ (t >>> 7), t | 61)) >>> 0)) >>> 0;
-        return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-    };
-}
-
-
-function iconHsl(h, s, l) {
-    s /= 100;
-    l /= 100;
-    const c = (1 - Math.abs(2 * l - 1)) * s;
-    const x = c * (1 - Math.abs((h / 60) % 2 - 1));
-    const m = l - c / 2;
-    const [r, g, b] = [[c, x, 0], [x, c, 0], [0, c, x], [0, x, c], [x, 0, c], [c, 0, x]][Math.floor(h / 60) % 6];
-    return [Math.round((r + m) * 255), Math.round((g + m) * 255), Math.round((b + m) * 255)];
+// Bloque real de Minecraft para cada servidor (mismo calculo que el servidor)
+function serverIconBlock(slug) {
+    return ICON_BLOCKS[iconHash(slug || "server") % ICON_BLOCKS.length];
 }
 
 
 function serverIconPixels(slug) {
 
-    const seed = iconHash(slug || "server");
-    let hue = seed % 360;
-
-    // Nunca el verde del icono del sistema
-    if (hue >= 70 && hue <= 150) hue = (hue + 110) % 360;
-
-    const rand = iconRng(seed);
-    const base = (hue + 30) % 360;
-    const top = [iconHsl(hue, 62, 52), iconHsl(hue, 62, 44), iconHsl(hue, 58, 60)];
-    const bottom = [iconHsl(base, 38, 34), iconHsl(base, 38, 28), iconHsl(base, 34, 40)];
     const pixels = [];
 
-    for (let y = 0; y < 8; y++) {
-        for (let x = 0; x < 8; x++) {
-            let palette = y < 3 ? top : bottom;
-            const value = Math.floor(rand() * 3);
+    serverIconBlock(slug).bands.forEach(function([rows, colors]) {
+        const rgb = colors.map(function(c) {
+            return [1, 3, 5].map(function(i) { return parseInt(c.slice(i, i + 2), 16); });
+        });
 
-            if (y === 3 && rand() < 0.35) palette = top;
-
-            pixels.push(palette[value]);
+        for (let y = 0; y < rows; y++) {
+            for (let x = 0; x < ICON_GRID; x++) {
+                pixels.push(rgb[Math.floor(x * rgb.length / ICON_GRID)]);
+            }
         }
-    }
+    });
 
     return pixels;
 }
@@ -14773,10 +14761,10 @@ function serverIconSvg(slug) {
     let rects = "";
 
     pixels.forEach(function(rgb, i) {
-        rects += '<rect x="' + (i % 8) + '" y="' + Math.floor(i / 8) + '" width="1" height="1" fill="rgb(' + rgb.join(",") + ')"/>';
+        rects += '<rect x="' + (i % ICON_GRID) + '" y="' + Math.floor(i / ICON_GRID) + '" width="1" height="1" fill="rgb(' + rgb.join(",") + ')"/>';
     });
 
-    return '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 8 8" shape-rendering="crispEdges">' + rects + '</svg>';
+    return '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ' + ICON_GRID + ' ' + ICON_GRID + '" shape-rendering="crispEdges">' + rects + '</svg>';
 }
 
 
@@ -14789,6 +14777,7 @@ function serverIconEl(slug, className) {
     const img = document.createElement("img");
     img.className = className;
     img.alt = "";
+    img.title = serverIconBlock(slug).name;
     img.src = serverIconUrl(slug);
     return img;
 }
@@ -14900,17 +14889,20 @@ function chatRow(message) {
 
     if (message.type === "chat" || message.type === "say") {
 
-        const row = el("div", "chat-msg" + (message.type === "say" ? " chat-say" : ""));
+        const roleClass = message.type === "say" ? " chat-say chat-role-" + (message.role || "server") : "";
+        const row = el("div", "chat-msg" + roleClass);
         const body = el("div", "chat-body");
 
-        const name = el("span", "chat-name",
-            message.type === "say" ? t("chat.server") : message.name);
+        const sayName = !message.role || message.role === "server" ? t("chat.server")
+            : message.role === "guest" ? t("chat.guest") : message.name;
+        const name = el("span", "chat-name", message.type === "say" ? sayName : message.name);
 
         body.append(name, el("span", "chat-text", message.text));
 
-        const avatar = message.type === "say"
-            ? el("span", "avatar chat-avatar server", "S")
-            : chatAvatar(message.name);
+        const avatar = message.type !== "say" ? chatAvatar(message.name)
+            : message.role === "user" ? el("span", "avatar chat-avatar user", (message.name || "?").charAt(0).toUpperCase())
+            : message.role === "guest" ? el("span", "avatar chat-avatar guest", "?")
+            : el("span", "avatar chat-avatar server", "S");
 
         row.append(time, avatar, body);
         return row;
@@ -15234,9 +15226,17 @@ class Handler(BaseHTTPRequestHandler):
         use_server(srv)
         manage = can_manage(user, srv)
 
-        # Publico: estado y recursos (si el admin lo permite)
-        if path in ("/api", "/stats") and not public_ok(user):
+        # Publico: estado, recursos, consola y chat (si el admin lo permite)
+        if path in ("/api", "/stats", "/console", "/chat") and not public_ok(user):
             return self.deny(user)
+
+        if path == "/console":
+            self.send_body(console().encode("utf-8"), "text/plain; charset=utf-8")
+            return
+
+        if path == "/chat":
+            self.send_json(chat_history())
+            return
 
         if path == "/api":
             data = server_data()
@@ -15442,6 +15442,20 @@ class Handler(BaseHTTPRequestHandler):
                 log_server_action(srv, "%s por %s" % (action, user["username"]))
 
             self.send_json(docker_action(action))
+            return
+
+        # El chat esta abierto: cada quien aparece con su etiqueta
+        if path == "/chat/send":
+            if not manage and not public_ok(user):
+                return self.deny(user)
+
+            if chat_rate_limited(self.client_address[0]):
+                self.send_json({"ok": False, "message": "Estás enviando mensajes muy rápido. Espera un momento."}, 429)
+                return
+
+            role = "server" if manage else ("user" if user else "guest")
+            text = str(self.json_body(4096).get("text", ""))
+            self.send_json(send_chat(text, role, user["username"] if user else None))
             return
 
         if not manage:
