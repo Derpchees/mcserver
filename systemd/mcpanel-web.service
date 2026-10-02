@@ -1,0 +1,14 @@
+[Unit]
+Description=Minecraft Server Panel (web)
+After=network-online.target docker.service
+Wants=network-online.target
+Requires=docker.service
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 /opt/mcpanel/panel/mcpanel.py
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

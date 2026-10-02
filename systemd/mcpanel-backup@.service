@@ -1,0 +1,9 @@
+[Unit]
+Description=Minecraft Server Panel backup (%i)
+After=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/opt/mcpanel/bin/mcpanel-backup.sh %i
+Nice=10
+IOSchedulingClass=idle

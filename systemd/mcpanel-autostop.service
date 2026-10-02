@@ -1,0 +1,13 @@
+[Unit]
+Description=Minecraft Server Panel (automatic shutdown when empty)
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=simple
+ExecStart=/opt/mcpanel/bin/mcpanel-autostop.sh
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

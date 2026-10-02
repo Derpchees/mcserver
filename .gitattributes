@@ -1,0 +1,4 @@
+# Los scripts deben tener saltos de linea de Linux aunque se clone en Windows
+* text=auto eol=lf
+*.png binary
+*.jpg binary

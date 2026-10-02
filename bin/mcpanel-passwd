@@ -1,0 +1,53 @@
+#!/bin/bash
+#
+# Cambia la contrasena del panel. Uso:
+#   sudo mcpanel-passwd            (la pide dos veces)
+#   echo 'clave' | sudo mcpanel-passwd --stdin
+#
+
+. /opt/mcpanel/bin/mcpanel-common.sh
+
+SECRET="${SECRET_FILE:-/etc/mcpanel/secret.json}"
+
+if [ "$(id -u)" -ne 0 ]; then
+    echo "Corre este comando con sudo." >&2
+    exit 1
+fi
+
+if [ "$1" = "--stdin" ]; then
+    IFS= read -r password
+else
+    read -r -s -p "Nueva contraseña / New password: " password; echo
+    read -r -s -p "Repítela / Repeat it: " again; echo
+
+    if [ "$password" != "$again" ]; then
+        echo "No coinciden / They do not match." >&2
+        exit 1
+    fi
+fi
+
+if [ "${#password}" -lt 6 ]; then
+    echo "Mínimo 6 caracteres / At least 6 characters." >&2
+    exit 1
+fi
+
+MCPANEL_PASSWORD="$password" MCPANEL_SECRET="$SECRET" python3 - <<'PY'
+import hashlib, json, os, secrets
+
+password = os.environ["MCPANEL_PASSWORD"]
+path = os.environ["MCPANEL_SECRET"]
+salt = secrets.token_bytes(16)
+iterations = 310000
+digest = hashlib.pbkdf2_hmac("sha256", password.encode(), salt, iterations).hex()
+
+os.makedirs(os.path.dirname(path), exist_ok=True)
+fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+
+with os.fdopen(fd, "w") as f:
+    json.dump({"files_password": f"pbkdf2_sha256${iterations}${salt.hex()}${digest}"}, f, indent=2)
+PY
+
+echo "Contraseña actualizada / Password updated."
+
+# Las sesiones abiertas siguen validas hasta reiniciar el panel
+systemctl try-restart mcpanel-web.service 2>/dev/null || true

@@ -1,0 +1,12 @@
+[Unit]
+Description=Minecraft Server Panel scheduled backup
+
+[Timer]
+# install.sh reemplaza @BACKUP_CALENDAR@ (hora local del servidor)
+OnCalendar=@BACKUP_CALENDAR@
+Persistent=true
+WakeSystem=true
+Unit=mcpanel-backup@auto.service
+
+[Install]
+WantedBy=timers.target

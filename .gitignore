@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+*.swp
+.DS_Store
+# Archivos de respuestas con contraseñas reales
+answers*.env
+!examples/answers.env

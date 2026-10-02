@@ -1,0 +1,14 @@
+[Unit]
+Description=Minecraft Server Panel (on-demand game proxy)
+After=network-online.target docker.service
+Wants=network-online.target
+Requires=docker.service
+
+[Service]
+Type=simple
+ExecStart=/opt/mcpanel/bin/mcpanel-proxy.sh
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target
