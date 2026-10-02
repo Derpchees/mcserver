@@ -23,7 +23,7 @@ Each person creates an account from the login page and, in the same step, their 
 
 - **Dashboard**: status, online players with their skins, an auto-shutdown countdown and a resource monitor (CPU, memory, temperatures, per-disk storage).
 - **Console and chat**: side by side on a computer, tabs on a phone. Includes the server chat history.
-- **CurseForge mods and plugins**: search and add server-side mods (client-only mods are hidden) or plugins for Paper, and create servers from CurseForge modpacks. Needs a free API key that an administrator adds in Administration.
+- **Mods, plugins and modpacks (Modrinth)**: in the Mods tab you search server-side mods (client-only mods are hidden) or plugins for Paper and add or remove many at once: by ticking results, pasting a list of names or links, or selecting all. The same tab picks a modpack for the server, and you can go back to the previous type. No key needed.
 - **Server message (MOTD)**: edited next to the server status, with Minecraft colors, styles and a live preview.
 - **Favorite server**: the star next to Start makes the panel open that server. It is saved in your account or, without logging in, in the browser.
 - **Players**: everyone who has joined, with a 3D skin. Kick, ban, temporary suspension, private messages, game mode, teleport, operator and whitelist.

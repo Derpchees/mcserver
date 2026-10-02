@@ -23,7 +23,7 @@ Cada persona crea su cuenta desde la pantalla de entrar y, en el mismo paso, su 
 
 - **Panel principal**: estado, jugadores en línea con su skin, la cuenta regresiva del apagado automático y un monitor de recursos (CPU, memoria, temperaturas, almacenamiento por disco).
 - **Consola y chat**: lado a lado en computadora, con pestañas en celular. Incluye el historial del chat del servidor.
-- **Mods y plugins de CurseForge**: busca y agrega mods de servidor (los que son solo de cliente se ocultan) o plugins para Paper, y crea servidores a partir de modpacks de CurseForge. Requiere una clave de API gratuita que el administrador agrega en Administración.
+- **Mods, plugins y modpacks (Modrinth)**: en la pestaña Mods buscas mods de servidor (los que son solo de cliente se ocultan) o plugins para Paper, y los agregas o quitas de a varios: marcando resultados, pegando una lista de nombres o enlaces, o seleccionando todos. Ahí mismo eliges un modpack para el servidor y puedes volver al tipo anterior. No requiere clave.
 - **Mensaje del servidor (MOTD)**: se edita junto al estado del servidor, con paleta de colores y estilos de Minecraft y vista previa.
 - **Servidor favorito**: la estrella junto a Iniciar hace que el panel abra ese servidor. Se guarda en tu cuenta o, sin sesión, en el navegador.
 - **Jugadores**: todos los que han entrado, con su skin en 3D. Expulsar, banear, suspensión temporal, mensajes privados, modo de juego, teletransporte, operador y lista blanca.

@@ -86,7 +86,7 @@ DOCKER_NETWORK = cfg("DOCKER_NETWORK", "mcpanel-net")
 
 DB_PATH = os.path.join(STATE_ROOT, "mcpanel.db")
 
-SERVER_TYPES = ("FORGE", "NEOFORGE", "FABRIC", "PAPER", "VANILLA", "AUTO_CURSEFORGE")
+SERVER_TYPES = ("FORGE", "NEOFORGE", "FABRIC", "PAPER", "VANILLA", "AUTO_CURSEFORGE", "MODRINTH")
 
 # Variable del contenedor que fija la version del cargador de cada tipo
 LOADER_ENV = {
@@ -426,7 +426,7 @@ class Server:
             "state_detail": self.state_detail,
             "loader": self.extra_env.get(LOADER_ENV.get(self.type, ""), ""),
             "java": self.java,
-            "modpack": self.extra_env.get("CF_SLUG", "")
+            "modpack": self.extra_env.get("MODRINTH_MODPACK") or self.extra_env.get("CF_SLUG", "")
         }
 
 
@@ -609,6 +609,10 @@ def build_container(srv, start=False):
 
     for key, value in sorted(srv.extra_env.items()):
         args += ["-e", "%s=%s" % (key, value)]
+
+    # Las dependencias obligatorias de los mods de Modrinth se instalan solas
+    if "MODRINTH_PROJECTS" in srv.extra_env and "MODRINTH_DOWNLOAD_DEPENDENCIES" not in srv.extra_env:
+        args += ["-e", "MODRINTH_DOWNLOAD_DEPENDENCIES=required"]
 
     # CurseForge necesita la clave de API para modpacks y mods
     if srv.type == "AUTO_CURSEFORGE" or "CURSEFORGE_FILES" in srv.extra_env:

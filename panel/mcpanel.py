@@ -2234,6 +2234,9 @@ def clean_server_fields(data, user, partial=False):
 
         out["modpack"] = modpack
 
+    if out.get("type") == "MODRINTH" and not partial and not out.get("modpack"):
+        raise FileError("Elige un modpack")
+
     if out.get("type") == "AUTO_CURSEFORGE":
         if not core.get_setting("cf_api_key"):
             raise FileError("Falta la clave de API de CurseForge. El administrador la agrega en Administración.")
@@ -2328,6 +2331,9 @@ def create_server_for(user, data):
 
     if type_ == "AUTO_CURSEFORGE":
         fields["extra_env"] = json.dumps({"CF_SLUG": modpack})
+        fields["version"] = "LATEST"
+    elif type_ == "MODRINTH":
+        fields["extra_env"] = json.dumps({"MODRINTH_MODPACK": modpack})
         fields["version"] = "LATEST"
     elif loader and type_ in LOADER_ENV:
         fields["extra_env"] = json.dumps({LOADER_ENV[type_]: loader})
@@ -2457,7 +2463,7 @@ def update_server_config(srv, data, user):
     if loader is not None or modpack is not None or new_type != srv.type:
         extra = dict(srv.extra_env)
 
-        for key in list(LOADER_ENV.values()) + ["CF_SLUG"]:
+        for key in list(LOADER_ENV.values()) + ["CF_SLUG", "MODRINTH_MODPACK"]:
             extra.pop(key, None)
 
         value = loader if loader is not None else ""
@@ -2472,6 +2478,14 @@ def update_server_config(srv, data, user):
                 raise FileError("Elige un modpack de CurseForge")
 
             extra["CF_SLUG"] = slug
+
+        if new_type == "MODRINTH":
+            slug = modpack if modpack else srv.extra_env.get("MODRINTH_MODPACK", "")
+
+            if not slug:
+                raise FileError("Elige un modpack")
+
+            extra["MODRINTH_MODPACK"] = slug
 
         if extra != srv.extra_env:
             fields["extra_env"] = json.dumps(extra) if extra else ""
@@ -3174,12 +3188,117 @@ def cf_search(kind, query, version="", type_=""):
     return {"results": results}
 
 
+MODRINTH_API = "https://api.modrinth.com/v2"
+MODRINTH_UA = "Derpchees/mcserver (github.com/Derpchees/mcserver)"
+MODRINTH_LOADER = {"FORGE": "forge", "NEOFORGE": "neoforge", "FABRIC": "fabric"}
+PROJECT_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,100}$")
+MODPACK_TYPES = ("AUTO_CURSEFORGE", "MODRINTH")
+
+
+def modrinth_get(path, params=None):
+    url = MODRINTH_API + path + ("?" + urllib.parse.urlencode(params) if params else "")
+    request = urllib.request.Request(url, headers={"User-Agent": MODRINTH_UA, "Accept": "application/json"})
+
+    try:
+        with urllib.request.urlopen(request, timeout=15) as response:
+            return json.loads(response.read())
+    except urllib.error.HTTPError as error:
+        if error.code == 404:
+            return None
+        raise FileError("Modrinth respondió con un error (%d)" % error.code)
+    except (urllib.error.URLError, OSError, ValueError):
+        raise FileError("No se pudo conectar con Modrinth")
+
+
+def modrinth_env(server_side):
+    if server_side in ("required", "optional"):
+        return "server"
+
+    if server_side == "unsupported":
+        return "client"
+
+    return "unknown"
+
+
+def modrinth_item(project):
+    slug = project.get("slug") or project.get("project_id") or project.get("id") or ""
+
+    return {
+        "id": project.get("project_id") or project.get("id"),
+        "slug": slug,
+        "name": project.get("title") or slug,
+        "summary": (project.get("description") or "")[:200],
+        "downloads": project.get("downloads", 0),
+        "icon": project.get("icon_url") or "",
+        "author": project.get("author") or "",
+        "url": "https://modrinth.com/project/" + slug,
+        "env": modrinth_env(project.get("server_side", ""))
+    }
+
+
+def modrinth_search(kind, query, version="", type_=""):
+    if kind not in ("mods", "plugins", "modpacks"):
+        raise FileError("Búsqueda no válida")
+
+    if kind == "mods":
+        facets = [["project_type:mod"]]
+
+        if type_ in MODRINTH_LOADER:
+            facets.append(["categories:" + MODRINTH_LOADER[type_]])
+    elif kind == "plugins":
+        facets = [["project_type:plugin"], ["categories:paper", "categories:spigot", "categories:bukkit"]]
+    else:
+        facets = [["project_type:modpack"]]
+
+    # Solo proyectos que corren en el servidor
+    if kind != "plugins":
+        facets.append(["server_side:required", "server_side:optional"])
+
+    if version and version != "LATEST" and kind != "modpacks":
+        facets.append(["versions:" + version])
+
+    data = modrinth_get("/search", {
+        "query": str(query or "")[:80],
+        "facets": json.dumps(facets),
+        "limit": 40,
+        "index": "relevance" if query else "downloads"
+    }) or {}
+
+    results = [modrinth_item(hit) for hit in data.get("hits", [])]
+
+    # El filtro de Modrinth a veces deja pasar mods solo de cliente
+    if kind != "plugins":
+        results = [r for r in results if r["env"] != "client"]
+
+    return {"results": results}
+
+
+def parse_project_tokens(text):
+    # Nombres (slugs), IDs o enlaces de Modrinth, separados por lineas,
+    # comas o espacios
+    tokens = []
+
+    for raw in re.split(r"[\s,;]+", str(text or "")):
+        raw = raw.strip()
+
+        if not raw:
+            continue
+
+        m = re.search(r"modrinth\.com/(?:mod|plugin|modpack|project|datapack)/([^/?#\s]+)", raw)
+        token = m.group(1) if m else raw
+
+        if PROJECT_ID.match(token) and token not in tokens:
+            tokens.append(token)
+
+    return tokens[:150]
+
+
 def mods_meta_path():
     return os.path.join(S().state_dir, "mods.json")
 
 
 def mod_slugs():
-    return [x for x in S().extra_env.get("CURSEFORGE_FILES", "").split(",") if x]
+    return [x for x in S().extra_env.get("MODRINTH_PROJECTS", "").split(",") if x]
 
 
 def mods_state():
@@ -3199,9 +3318,10 @@ def mods_state():
         "type": S().type,
         "version": S().version,
         "folder": kind or "mods",
-        "cf": bool(cf_key()),
         "projects": [dict(meta.get(slug, {}), slug=slug) for slug in mod_slugs()],
         "files": files,
+        "modpack": (meta.get("_modpack") or {"slug": S().extra_env.get("MODRINTH_MODPACK") or S().extra_env.get("CF_SLUG", "")})
+                   if S().type in MODPACK_TYPES else None,
         "pending": os.path.exists(pending_path(S())),
         "running": core.container_state(S())[0] == "running"
     }
@@ -3211,9 +3331,9 @@ def set_mod_slugs(slugs):
     extra = dict(S().extra_env)
 
     if slugs:
-        extra["CURSEFORGE_FILES"] = ",".join(slugs)
+        extra["MODRINTH_PROJECTS"] = ",".join(slugs)
     else:
-        extra.pop("CURSEFORGE_FILES", None)
+        extra.pop("MODRINTH_PROJECTS", None)
 
     core.update_server(S().id, extra_env=json.dumps(extra) if extra else "")
     fresh = core.get_server(S().id)
@@ -3221,50 +3341,141 @@ def set_mod_slugs(slugs):
     return request_rebuild(fresh)
 
 
-def add_mod(data, user):
+def add_mods(data, user):
+    # Agrega varios a la vez: elegidos en la busqueda (items) y/o una
+    # lista pegada (text). Todo se aplica en una sola recreacion.
     if S().type not in MOD_KIND:
         raise FileError("Este tipo de servidor no admite mods ni plugins")
 
-    slug = str(data.get("slug", "")).strip().lower()
+    plugins = MOD_KIND[S().type] == "plugins"
+    wanted = []
+    skipped = []
 
-    if not CF_SLUG.match(slug):
-        raise FileError("Proyecto no válido")
+    for item in data.get("items") or []:
+        if isinstance(item, dict) and PROJECT_ID.match(str(item.get("slug", ""))):
+            wanted.append({
+                "slug": str(item["slug"]),
+                "name": str(item.get("name") or item["slug"])[:80],
+                "icon": str(item.get("icon") or "")[:400],
+                "env": str(item.get("env") or "")[:10]
+            })
+
+    tokens = parse_project_tokens(data.get("text", ""))
+
+    if tokens:
+        found = {}
+
+        for project in modrinth_get("/projects", {"ids": json.dumps(tokens)}) or []:
+            for key in (project.get("slug"), project.get("id")):
+                if key:
+                    found[key] = project
+
+        for token in tokens:
+            project = found.get(token)
+
+            if not project:
+                skipped.append({"name": token, "reason": "not_found"})
+                continue
+
+            if not plugins and modrinth_env(project.get("server_side")) == "client":
+                skipped.append({"name": project.get("title") or token, "reason": "client"})
+                continue
+
+            item = modrinth_item(project)
+            wanted.append({"slug": item["slug"], "name": item["name"], "icon": item["icon"], "env": item["env"]})
 
     slugs = mod_slugs()
-
-    if slug in slugs:
-        return {"ok": True, "message": "Ya estaba agregado", "applied": "none"}
-
     meta = read_json_file(mods_meta_path(), {})
-    meta[slug] = {
-        "name": str(data.get("name") or slug)[:80],
-        "icon": str(data.get("icon") or "")[:400],
-        "env": str(data.get("env") or "")[:10]
-    }
+    added = []
+
+    for item in wanted:
+        if item["slug"] in slugs:
+            continue
+
+        slugs.append(item["slug"])
+        meta[item["slug"]] = {"name": item["name"], "icon": item["icon"], "env": item["env"]}
+        added.append(item["name"])
+
+    if not added:
+        return {"ok": True, "message": "Sin cambios", "added": [], "skipped": skipped, "applied": "none"}
+
     write_json_file(mods_meta_path(), meta)
+    applied = set_mod_slugs(slugs)
+    log_server_action(S(), "%s agregó: %s" % (user["username"], ", ".join(added)))
 
-    applied = set_mod_slugs(slugs + [slug])
-    log_server_action(S(), "%s agregó %s" % (user["username"], slug))
-
-    return {"ok": True, "message": "Agregado", "applied": applied}
+    return {"ok": True, "message": "Agregado", "added": added, "skipped": skipped, "applied": applied}
 
 
-def remove_mod(data, user):
-    slug = str(data.get("slug", "")).strip().lower()
+def remove_mods(data, user):
+    remove = {str(s) for s in (data.get("slugs") or [])}
     slugs = mod_slugs()
+    keep = [s for s in slugs if s not in remove]
 
-    if slug not in slugs:
+    if len(keep) == len(slugs):
         raise FileError("Ese proyecto no está agregado", 404)
 
     meta = read_json_file(mods_meta_path(), {})
-    meta.pop(slug, None)
+
+    for slug in remove:
+        meta.pop(slug, None)
+
+    write_json_file(mods_meta_path(), meta)
+    applied = set_mod_slugs(keep)
+    log_server_action(S(), "%s quitó: %s" % (user["username"], ", ".join(sorted(remove))))
+
+    return {"ok": True, "message": "Quitado", "removed": len(slugs) - len(keep), "applied": applied}
+
+
+def set_modpack(data, user):
+    # Convierte el servidor en un modpack de Modrinth. Se guarda la
+    # configuracion anterior para poder volver; el mundo no se toca.
+    slug = str(data.get("slug", "")).strip()
+
+    if not PROJECT_ID.match(slug):
+        raise FileError("Modpack no válido")
+
+    srv = S()
+    meta = read_json_file(mods_meta_path(), {})
+
+    if srv.type not in MODPACK_TYPES:
+        meta["_prev"] = {"type": srv.type, "version": srv.version, "extra": srv.extra_env}
+
+    meta["_modpack"] = {
+        "slug": slug,
+        "name": str(data.get("name") or slug)[:80],
+        "icon": str(data.get("icon") or "")[:400]
+    }
     write_json_file(mods_meta_path(), meta)
 
-    applied = set_mod_slugs([s for s in slugs if s != slug])
-    log_server_action(S(), "%s quitó %s" % (user["username"], slug))
+    core.update_server(srv.id, type="MODRINTH", version="LATEST",
+                       extra_env=json.dumps({"MODRINTH_MODPACK": slug}))
+    fresh = core.get_server(srv.id)
+    use_server(fresh)
+    applied = request_rebuild(fresh)
+    log_server_action(fresh, "%s cambió el modpack a %s" % (user["username"], slug))
 
-    return {"ok": True, "message": "Quitado", "applied": applied}
+    return {"ok": True, "message": "Modpack elegido", "applied": applied}
 
+
+def clear_modpack(user):
+    srv = S()
+
+    if srv.type not in MODPACK_TYPES:
+        raise FileError("Este servidor no usa un modpack")
+
+    meta = read_json_file(mods_meta_path(), {})
+    prev = meta.pop("_prev", None) or {"type": "VANILLA", "version": "LATEST", "extra": {}}
+    meta.pop("_modpack", None)
+    write_json_file(mods_meta_path(), meta)
+
+    core.update_server(srv.id, type=prev["type"], version=prev["version"],
+                       extra_env=json.dumps(prev["extra"]) if prev.get("extra") else "")
+    fresh = core.get_server(srv.id)
+    use_server(fresh)
+    applied = request_rebuild(fresh)
+    log_server_action(fresh, "%s quitó el modpack" % user["username"])
+
+    return {"ok": True, "message": "Modpack quitado", "applied": applied, "type": prev["type"]}
 
 
 HTML = r"""
@@ -5470,7 +5681,31 @@ h1 {
 }
 
 .mod-file {
-    grid-template-columns: 24px minmax(0, 1fr) 100px auto;
+    grid-template-columns: 18px minmax(0, 1fr) 100px;
+}
+
+.mod-row.selectable {
+    cursor: pointer;
+}
+
+.mod-row.selectable:hover {
+    border-color: var(--border-strong);
+}
+
+.mod-row .check {
+    flex: none;
+}
+
+.mods-paste {
+    width: 100%;
+    font-family: var(--mono);
+    font-size: 13px;
+    resize: vertical;
+    margin-bottom: 10px;
+}
+
+.mods-results-gap {
+    margin-top: 12px;
 }
 
 .modpack-box {
@@ -6896,46 +7131,81 @@ autocomplete="current-password"
 <button class="btn btn-warn btn-small" onclick="applyMods()" data-i18n="mods.apply">Apply and restart</button>
 </div>
 
-<div id="modsModpackNote" class="card" hidden>
-<h3 class="card-title" data-i18n="mods.modpackTitle">Mods come from the modpack</h3>
-<p class="hint" data-i18n="mods.modpackDesc">This server installs the mods of its CurseForge modpack automatically. To add extra jars, upload them to the mods folder in Files.</p>
+<div id="modpackCurrent" class="card" hidden>
+<div class="card-head">
+<h3 class="card-title" data-i18n="mods.modpackTitle2">Modpack</h3>
+<button class="btn btn-ghost btn-small" onclick="clearModpack()" data-i18n="mods.clearModpack">Stop using the modpack</button>
+</div>
+<div id="modpackCurrentRow" class="mod-list"></div>
 </div>
 
 <div id="modsUnsupported" class="card" hidden>
 <h3 class="card-title" data-i18n="mods.unsupportedTitle">This server type has no mods</h3>
-<p class="hint" data-i18n="mods.unsupportedDesc">Vanilla does not load mods or plugins. Change the type to Forge, NeoForge or Fabric (mods) or Paper (plugins) in Settings.</p>
-</div>
-
-<div id="modsNoKey" class="card" hidden>
-<h3 class="card-title" data-i18n="mods.noKeyTitle">CurseForge is not set up</h3>
-<p class="hint" data-i18n="mods.noKeyDesc">An administrator has to add a CurseForge API key in Administration. Meanwhile you can upload jar files in Files.</p>
+<p class="hint" data-i18n="mods.unsupportedDesc2">Vanilla does not load mods or plugins. Pick a modpack below, or change the type to Forge, NeoForge, Fabric (mods) or Paper (plugins) in Settings.</p>
 </div>
 
 <div id="modsSearchCard" class="card" hidden>
 <div class="card-head">
 <h3 id="modsSearchTitle" class="card-title"></h3>
-<span class="hint">CurseForge</span>
+<span class="hint">Modrinth</span>
 </div>
 <form class="pl-inline" onsubmit="searchMods(event)">
 <input id="modsQuery" class="input" data-i18n-placeholder="mods.searchPh" placeholder="Search by name..." autocomplete="off">
 <button class="btn btn-start btn-small" type="submit" data-i18n="mods.search">Search</button>
 </form>
 <div id="modsHint" class="pl-hint mods-hint"></div>
+<div id="modsPickedBar" class="fm-bar" hidden>
+<span id="modsPickedText" class="fm-bar-text"></span>
+<button class="btn btn-start btn-small" onclick="addPicked()" data-i18n="mods.addPicked">Add selected</button>
+</div>
 <div id="modsResults" class="mod-list"></div>
 </div>
 
-<div id="modsProjectsCard" class="card">
+<div id="modsBulkCard" class="card" hidden>
 <div class="card-head">
-<h3 class="card-title" data-i18n="mods.projectsTitle">Added from CurseForge</h3>
+<h3 class="card-title" data-i18n="mods.bulkTitle">Add several at once</h3>
+</div>
+<p class="hint" data-i18n="mods.bulkDesc">Paste Modrinth names or links, one per line or separated by commas.</p>
+<textarea id="modsPaste" class="input mods-paste" rows="4" spellcheck="false" data-i18n-placeholder="mods.bulkPh" placeholder="jei&#10;https://modrinth.com/mod/journeymap&#10;waystones"></textarea>
+<div class="toolbar mods-bulk-actions">
+<button class="btn btn-start btn-small" onclick="addPasted()" data-i18n="mods.bulkAdd">Add list</button>
+</div>
+</div>
+
+<div id="modsProjectsCard" class="card" hidden>
+<div class="card-head">
+<h3 class="card-title" data-i18n="mods.projectsTitle2">Added from Modrinth</h3>
+<div class="toolbar">
+<label class="un-check"><input id="modsAllProjects" type="checkbox" class="check" onchange="toggleAllProjects(this.checked)"> <span data-i18n="mods.selectAll">Select all</span></label>
+<button class="btn btn-ghost btn-small" onclick="copyModList()" data-i18n="mods.copyList">Copy list</button>
+<button id="modsRemoveBtn" class="btn btn-stop btn-small" onclick="removeSelectedMods()" disabled>Remove</button>
+</div>
 </div>
 <div id="modsProjects" class="mod-list"></div>
+</div>
+
+<div id="modpackPick" class="card">
+<div class="card-head">
+<h3 class="card-title" data-i18n="mods.modpackTitle2">Modpack</h3>
+<span class="hint">Modrinth</span>
+</div>
+<p class="hint" data-i18n="mods.modpackPickDesc">Turn this server into a ready-made modpack. Only modpacks that run on a server are shown.</p>
+<form class="pl-inline" onsubmit="searchModpacks(event)">
+<input id="modpackQuery" class="input" data-i18n-placeholder="mods.modpackSearchPh" placeholder="Search modpacks..." autocomplete="off">
+<button class="btn btn-ghost btn-small" type="submit" data-i18n="mods.search">Search</button>
+</form>
+<div id="modpackResults" class="mod-list mods-results-gap"></div>
 </div>
 
 <div class="card">
 <div class="card-head">
 <h3 id="modsFilesTitle" class="card-title"></h3>
-<span class="hint" data-i18n="mods.filesHint">Includes jars added by hand or by CurseForge</span>
+<div class="toolbar">
+<label class="un-check"><input id="modsAllFiles" type="checkbox" class="check" onchange="toggleAllFiles(this.checked)"> <span data-i18n="mods.selectAll">Select all</span></label>
+<button id="modsDeleteFilesBtn" class="btn btn-stop btn-small" onclick="deleteSelectedFiles()" disabled>Delete</button>
 </div>
+</div>
+<p class="hint" data-i18n="mods.filesHint">Includes jars added by hand or by Modrinth</p>
 <div id="modsFiles" class="list"></div>
 </div>
 
@@ -7687,6 +7957,39 @@ const I18N = {
         "motd.cd": "Light purple",
         "motd.ce": "Yellow",
         "motd.cf": "White",
+        "mods.modpackTitle2": "Modpack",
+        "mods.modpackPickDesc": "Turn this server into a ready-made modpack. Only modpacks that run on a server are shown.",
+        "mods.modpackSearchPh": "Search modpacks...",
+        "mods.useModpack": "Use this modpack",
+        "mods.useModpackDesc": "The server switches to this modpack: it brings its own Minecraft version, loader and mods, and replaces the mods added here. The world is kept, but a world made with other mods may not load well, so make a backup first. You can go back to the previous type later.",
+        "mods.modpackActive": "Active modpack. Its mods are installed automatically.",
+        "mods.clearModpack": "Stop using the modpack",
+        "mods.clearModpackDesc": "The server goes back to its previous type and version. The world is kept.",
+        "mods.modpackSet": "Modpack chosen.",
+        "mods.modpackCleared": "Modpack removed.",
+        "mods.unsupportedDesc2": "Vanilla does not load mods or plugins. Pick a modpack below, or change the type to Forge, NeoForge, Fabric (mods) or Paper (plugins) in Settings.",
+        "mods.bulkTitle": "Add several at once",
+        "mods.bulkDesc": "Paste Modrinth names or links, one per line or separated by commas.",
+        "mods.bulkPh": "jei\nhttps://modrinth.com/mod/journeymap\nwaystones",
+        "mods.bulkAdd": "Add list",
+        "mods.picked.one": "1 selected",
+        "mods.picked.other": "{n} selected",
+        "mods.addPicked": "Add selected",
+        "mods.removeSelected": "Remove ({n})",
+        "mods.deleteFiles": "Delete ({n})",
+        "mods.removeDesc.one": "1 project will be removed from the server the next time it starts.",
+        "mods.removeDesc.other": "{n} projects will be removed from the server the next time they start.",
+        "mods.addedN.one": "1 added.",
+        "mods.addedN.other": "{n} added.",
+        "mods.removedN.one": "1 removed.",
+        "mods.removedN.other": "{n} removed.",
+        "mods.nothingNew": "They were already added.",
+        "mods.skippedTitle": "Some were not added",
+        "mods.skipClient": "client-only mod, it does not run on the server",
+        "mods.skipMissing": "not found on Modrinth",
+        "mods.copyList": "Copy list",
+        "mods.selectAll": "Select all",
+        "mods.projectsTitle2": "Added from Modrinth",
         "mods.tab": "Mods",
         "mods.tabPlugins": "Plugins",
         "mods.mods": "Mods",
@@ -7709,8 +8012,8 @@ const I18N = {
         "mods.projectsTitle": "Added from CurseForge",
         "mods.noProjects": "Nothing added yet.",
         "mods.files": "Files in /{folder}",
-        "mods.filesHint": "Includes jars added by hand or by CurseForge",
-        "mods.noFiles": "No jar files yet. CurseForge mods are downloaded when the server starts.",
+        "mods.filesHint": "Includes jars added by hand or by Modrinth",
+        "mods.noFiles": "No jar files yet. Mods are downloaded when the server starts.",
         "mods.noResults": "No results.",
         "mods.add": "Add",
         "mods.added": "Added",
@@ -7719,7 +8022,7 @@ const I18N = {
         "mods.downloads": "{n} downloads",
         "mods.envServer": "Server",
         "mods.envUnknown": "Not specified",
-        "mods.envUnknownHint": "CurseForge does not say if this mod runs on the server. Check its page before adding it.",
+        "mods.envUnknownHint": "The author does not say if this mod runs on the server. Check its page before adding it.",
         "mods.pendingToast": "Saved. It will be installed when the server restarts (button at the top).",
         "mods.appliedToast": "Saved. It will be installed the next time the server starts.",
         "form.ram": "RAM (GB)",
@@ -8299,6 +8602,39 @@ const I18N = {
         "motd.cd": "Rosa",
         "motd.ce": "Amarillo",
         "motd.cf": "Blanco",
+        "mods.modpackTitle2": "Modpack",
+        "mods.modpackPickDesc": "Convierte este servidor en un modpack listo para usar. Solo se muestran modpacks que funcionan en un servidor.",
+        "mods.modpackSearchPh": "Buscar modpacks...",
+        "mods.useModpack": "Usar este modpack",
+        "mods.useModpackDesc": "El servidor pasa a este modpack: trae su propia versión de Minecraft, cargador y mods, y reemplaza los mods agregados aquí. El mundo se conserva, pero un mundo hecho con otros mods puede no cargar bien, así que haz un respaldo antes. Después puedes volver al tipo anterior.",
+        "mods.modpackActive": "Modpack activo. Sus mods se instalan solos.",
+        "mods.clearModpack": "Dejar de usar el modpack",
+        "mods.clearModpackDesc": "El servidor vuelve a su tipo y versión anteriores. El mundo se conserva.",
+        "mods.modpackSet": "Modpack elegido.",
+        "mods.modpackCleared": "Modpack quitado.",
+        "mods.unsupportedDesc2": "Vanilla no carga mods ni plugins. Elige un modpack abajo, o cambia el tipo a Forge, NeoForge, Fabric (mods) o Paper (plugins) en Ajustes.",
+        "mods.bulkTitle": "Agregar varios a la vez",
+        "mods.bulkDesc": "Pega nombres o enlaces de Modrinth, uno por línea o separados por comas.",
+        "mods.bulkPh": "jei\nhttps://modrinth.com/mod/journeymap\nwaystones",
+        "mods.bulkAdd": "Agregar lista",
+        "mods.picked.one": "1 seleccionado",
+        "mods.picked.other": "{n} seleccionados",
+        "mods.addPicked": "Agregar seleccionados",
+        "mods.removeSelected": "Quitar ({n})",
+        "mods.deleteFiles": "Borrar ({n})",
+        "mods.removeDesc.one": "Se quitará 1 proyecto del servidor la próxima vez que arranque.",
+        "mods.removeDesc.other": "Se quitarán {n} proyectos del servidor la próxima vez que arranque.",
+        "mods.addedN.one": "1 agregado.",
+        "mods.addedN.other": "{n} agregados.",
+        "mods.removedN.one": "1 quitado.",
+        "mods.removedN.other": "{n} quitados.",
+        "mods.nothingNew": "Ya estaban agregados.",
+        "mods.skippedTitle": "Algunos no se agregaron",
+        "mods.skipClient": "mod solo de cliente, no funciona en el servidor",
+        "mods.skipMissing": "no se encontró en Modrinth",
+        "mods.copyList": "Copiar lista",
+        "mods.selectAll": "Seleccionar todo",
+        "mods.projectsTitle2": "Agregados desde Modrinth",
         "mods.tab": "Mods",
         "mods.tabPlugins": "Plugins",
         "mods.mods": "Mods",
@@ -8321,8 +8657,8 @@ const I18N = {
         "mods.projectsTitle": "Agregados desde CurseForge",
         "mods.noProjects": "Todavía no hay nada agregado.",
         "mods.files": "Archivos en /{folder}",
-        "mods.filesHint": "Incluye los jars subidos a mano o por CurseForge",
-        "mods.noFiles": "Todavía no hay archivos jar. Los mods de CurseForge se descargan cuando arranca el servidor.",
+        "mods.filesHint": "Incluye los jars subidos a mano o por Modrinth",
+        "mods.noFiles": "Todavía no hay archivos jar. Los mods se descargan cuando arranca el servidor.",
         "mods.noResults": "Sin resultados.",
         "mods.add": "Agregar",
         "mods.added": "Agregado",
@@ -8331,7 +8667,7 @@ const I18N = {
         "mods.downloads": "{n} descargas",
         "mods.envServer": "Servidor",
         "mods.envUnknown": "Sin indicar",
-        "mods.envUnknownHint": "CurseForge no indica si este mod funciona en el servidor. Revisa su página antes de agregarlo.",
+        "mods.envUnknownHint": "El autor no indica si este mod funciona en el servidor. Revisa su página antes de agregarlo.",
         "mods.pendingToast": "Guardado. Se instalará cuando el servidor se reinicie (botón arriba).",
         "mods.appliedToast": "Guardado. Se instalará la próxima vez que arranque el servidor.",
         "form.ram": "RAM (GB)",
@@ -8535,6 +8871,11 @@ const SERVER_MESSAGES_EN = {
     "Nadie puede borrar la cuenta del dueño del sistema": "Nobody can delete the system owner's account",
     "La clave de CurseForge no parece válida": "The CurseForge key does not look valid",
     "Solo el dueño del sistema puede desinstalar": "Only the system owner can uninstall",
+    "No se pudo conectar con Modrinth": "Could not connect to Modrinth",
+    "Modpack elegido": "Modpack chosen",
+    "Modpack quitado": "Modpack removed",
+    "Este servidor no usa un modpack": "This server does not use a modpack",
+    "Elige un modpack": "Choose a modpack",
     "Ese servidor no existe": "That server does not exist",
     "Movido": "Moved",
     "No hay elementos seleccionados": "No items selected",
@@ -8551,6 +8892,7 @@ const SERVER_MESSAGES_EN = {
 const SERVER_PREFIXES_EN = [
     ["No existe: ", "Does not exist: "],
     ["CurseForge respondió con un error ", "CurseForge answered with an error "],
+    ["Modrinth respondió con un error ", "Modrinth answered with an error "],
     ["La RAM debe estar entre 1 y ", "RAM must be between 1 and "],
     ["Los núcleos deben estar entre 0 y ", "Cores must be between 0 and "],
     ["Valor no válido para ", "Invalid value for "],
@@ -9716,7 +10058,7 @@ function applyManageUI() {
     // Mods o Plugins segun el tipo; Vanilla no tiene
     const modsTab = document.querySelector('.tab-btn[data-tab="mods"]');
     const type = info ? info.type : "";
-    modsTab.hidden = !manage || type === "VANILLA";
+    modsTab.hidden = !manage;
     $("modsTabLabel").textContent = type === "PAPER" ? t("mods.tabPlugins") : t("mods.tab");
     $("motdEdit").hidden = !manage;
 
@@ -12116,7 +12458,7 @@ let canManageCurrent = false;
 let currentView = "home";
 
 // Rutas que dependen del servidor abierto: se les antepone /s/<id>
-const SERVER_SCOPED = /^\/(api|stats|console|chat|files\/|backups|settings|players|mods|command|action\/|server\/)/;
+const SERVER_SCOPED = /^\/(api|stats|console|chat|files\/|backups|settings|players|mods\b|command|action\/|server\/)/;
 
 // Rutas que cualquiera puede consultar sin ser dueno
 const SERVER_PUBLIC = /^\/(api|stats|action\/start)/;
@@ -12458,7 +12800,7 @@ function renderServers(servers) {
 
         titles.append(nameEl,
                       el("div", "srv-meta", t("srv.by", { owner: server.owner || "-" }) + " · " +
-                          typeName(server.type) + (server.type === "AUTO_CURSEFORGE" ? " " + server.modpack : " " + server.version)));
+                          typeName(server.type) + (["AUTO_CURSEFORGE", "MODRINTH"].includes(server.type) ? " " + server.modpack : " " + server.version)));
         const pill = el("span", "pill srv-pill is-" + tone);
         pill.append(el("span", "dot"), el("span", "", label));
         top.append(logo, titles, pill);
@@ -12583,8 +12925,9 @@ function serverFields(prefix, values) {
     [["PAPER", "type.paper"], ["FORGE", "type.forge"], ["NEOFORGE", "type.neoforge"], ["FABRIC", "type.fabric"], ["VANILLA", "type.vanilla"]]
         .forEach(function([value, key]) { option(type, value, t(key)); });
 
-    if ((authState && authState.cf_enabled) || v.type === "AUTO_CURSEFORGE") {
-        option(type, "AUTO_CURSEFORGE", t("type.modpack"));
+    // Los modpacks se eligen en la pestana Mods; aqui solo se muestra el actual
+    if (v.type === "MODRINTH" || v.type === "AUTO_CURSEFORGE") {
+        option(type, v.type, t("type.modpackShort"));
     }
 
     type.value = v.type || "PAPER";
@@ -12625,7 +12968,7 @@ function serverFields(prefix, values) {
             option(modpackSel, "", t("form.loading"));
 
             try {
-                const response = await fetch("/cf/modpacks?q=" + encodeURIComponent(q));
+                const response = await fetch("/modpacks?q=" + encodeURIComponent(q));
                 const data = await response.json();
                 modpackSel.textContent = "";
 
@@ -12724,7 +13067,7 @@ function serverFields(prefix, values) {
     const loadVersions = async function() {
 
         // Un modpack trae su propia version de Minecraft y cargador
-        const isModpack = type.value === "AUTO_CURSEFORGE";
+        const isModpack = type.value === "AUTO_CURSEFORGE" || type.value === "MODRINTH";
         modpackWrap.hidden = !isModpack;
         versionWrap.hidden = isModpack;
 
@@ -12795,7 +13138,7 @@ function readServerFields(prefix) {
         version: ($(prefix + "Version").value || "").trim() || "LATEST",
         loader: $(prefix + "Loader") && !$(prefix + "Loader").closest(".field").hidden ? $(prefix + "Loader").value : "",
         java: $(prefix + "Java").value,
-        modpack: $(prefix + "Type").value === "AUTO_CURSEFORGE" && $(prefix + "Modpack") ? $(prefix + "Modpack").value : undefined,
+        modpack: ["AUTO_CURSEFORGE", "MODRINTH"].includes($(prefix + "Type").value) && $(prefix + "Modpack") ? $(prefix + "Modpack").value : undefined,
         max_gb: Number($(prefix + "Ram").value),
         cpu: Number($(prefix + "Cpu").value)
     };
@@ -13634,16 +13977,19 @@ async function editMotd() {
 
 
 // ============================================================
-// Mods y plugins (CurseForge)
+// Mods, plugins y modpack (Modrinth)
 // ============================================================
 
 let modsData = null;
+const modsPicked = new Map();
+const modsRemove = new Set();
+const filesRemove = new Set();
 
 
 function typeName(type) {
     return {
         FORGE: "Forge", NEOFORGE: "NeoForge", FABRIC: "Fabric", PAPER: "Paper",
-        VANILLA: "Vanilla", AUTO_CURSEFORGE: t("type.modpackShort")
+        VANILLA: "Vanilla", AUTO_CURSEFORGE: t("type.modpackShort"), MODRINTH: t("type.modpackShort")
     }[type] || type;
 }
 
@@ -13660,6 +14006,8 @@ function compactNumber(n) {
 async function loadMods() {
     try {
         modsData = await api("/mods?t=" + Date.now());
+        modsRemove.clear();
+        filesRemove.clear();
         renderMods();
     } catch (error) {
         if (error.message !== "auth") showToast(error.message, "red");
@@ -13667,11 +14015,32 @@ async function loadMods() {
 }
 
 
-function modRow(item, button) {
+function modCheck(checked, onChange) {
+    const box = el("input", "check");
+    box.type = "checkbox";
+    box.checked = checked;
+    box.onclick = function(event) { event.stopPropagation(); };
+    box.onchange = function() { onChange(box.checked); };
+    return box;
+}
+
+
+function modRow(item, button, check) {
 
     const row = el("div", "mod-row");
 
+    if (check) {
+        row.append(check);
+        row.classList.add("selectable");
+        row.onclick = function(event) {
+            if (event.target.closest("button, a, input")) return;
+            check.checked = !check.checked;
+            check.onchange();
+        };
+    }
+
     const icon = el("div", "mod-icon");
+
     if (item.icon) {
         const img = document.createElement("img");
         img.src = item.icon;
@@ -13687,8 +14056,6 @@ function modRow(item, button) {
         const tag = el("span", "tag amber", t("mods.envUnknown"));
         tag.title = t("mods.envUnknownHint");
         name.append(tag);
-    } else if (item.env === "server") {
-        name.append(el("span", "tag green", t("mods.envServer")));
     }
 
     info.append(name);
@@ -13710,14 +14077,26 @@ function renderMods() {
     const d = modsData;
     if (!d) return;
 
-    const modpack = d.type === "AUTO_CURSEFORGE";
-    const supported = !!d.kind;
+    const isModpack = !!d.modpack;
+    const supported = !!d.kind && !isModpack;
 
     $("modsPending").hidden = !(d.pending && d.running);
-    $("modsModpackNote").hidden = !modpack;
-    $("modsUnsupported").hidden = supported || modpack;
-    $("modsNoKey").hidden = d.cf || !supported;
-    $("modsSearchCard").hidden = !(d.cf && supported);
+
+    // Modpack actual
+    $("modpackCurrent").hidden = !isModpack;
+    $("modpackPick").hidden = isModpack;
+
+    if (isModpack) {
+        const box = $("modpackCurrentRow");
+        box.textContent = "";
+        box.append(modRow({ name: d.modpack.name || d.modpack.slug, icon: d.modpack.icon,
+                            summary: t("mods.modpackActive") }, null, null));
+    }
+
+    // Mods o plugins
+    $("modsUnsupported").hidden = supported || isModpack;
+    $("modsSearchCard").hidden = !supported;
+    $("modsBulkCard").hidden = !supported;
     $("modsProjectsCard").hidden = !supported;
 
     $("modsSearchTitle").textContent = d.kind === "plugins" ? t("mods.searchPlugins") : t("mods.searchMods");
@@ -13726,41 +14105,97 @@ function renderMods() {
         : t("mods.hintMods", { v: d.version, loader: typeName(d.type) });
     $("modsFilesTitle").textContent = t("mods.files", { folder: d.folder });
 
-    const projects = $("modsProjects");
-    projects.textContent = "";
+    renderModProjects();
+    renderModFiles();
+    renderPickedBar();
+}
+
+
+function renderModProjects() {
+
+    const d = modsData;
+    const box = $("modsProjects");
+    box.textContent = "";
 
     if (!d.projects.length) {
-        projects.append(el("div", "list-empty", t("mods.noProjects")));
+        box.append(el("div", "list-empty", t("mods.noProjects")));
     }
 
     d.projects.forEach(function(item) {
-        const remove = el("button", "btn btn-ghost btn-small", t("mods.remove"));
-        remove.onclick = function() { removeMod(item.slug, item.name || item.slug); };
-        projects.append(modRow(item, remove));
+        const check = modCheck(modsRemove.has(item.slug), function(on) {
+            if (on) modsRemove.add(item.slug); else modsRemove.delete(item.slug);
+            renderRemoveBar();
+        });
+        box.append(modRow(item, null, check));
     });
 
-    const files = $("modsFiles");
-    files.textContent = "";
+    $("modsAllProjects").checked = d.projects.length > 0 && modsRemove.size === d.projects.length;
+    renderRemoveBar();
+}
+
+
+function renderRemoveBar() {
+    $("modsRemoveBtn").disabled = modsRemove.size === 0;
+    $("modsRemoveBtn").textContent = modsRemove.size
+        ? t("mods.removeSelected", { n: modsRemove.size }) : t("mods.remove");
+}
+
+
+function toggleAllProjects(on) {
+    modsRemove.clear();
+    if (on) modsData.projects.forEach(function(p) { modsRemove.add(p.slug); });
+    renderModProjects();
+}
+
+
+function renderModFiles() {
+
+    const d = modsData;
+    const box = $("modsFiles");
+    box.textContent = "";
 
     if (!d.files.length) {
-        files.append(el("div", "list-empty", t("mods.noFiles")));
+        box.append(el("div", "list-empty", t("mods.noFiles")));
     }
 
     d.files.forEach(function(file) {
         const row = el("div", "row mod-file");
-        const icon = el("span", "row-icon");
-        icon.innerHTML = ICONS.archive;
-        const actions = el("span", "row-actions");
-        actions.append(iconButton("trash", t("fm.delete"), function() { deleteModFile(file.name); }, true));
-        row.append(icon, el("span", "row-name", file.name), el("span", "row-meta row-size", formatBytes(file.size)), actions);
-        files.append(row);
+        const check = modCheck(filesRemove.has(file.name), function(on) {
+            if (on) filesRemove.add(file.name); else filesRemove.delete(file.name);
+            renderFilesBar();
+        });
+        row.append(check, el("span", "row-name", file.name), el("span", "row-meta row-size", formatBytes(file.size)));
+        box.append(row);
     });
+
+    $("modsAllFiles").checked = d.files.length > 0 && filesRemove.size === d.files.length;
+    renderFilesBar();
+}
+
+
+function renderFilesBar() {
+    $("modsDeleteFilesBtn").disabled = filesRemove.size === 0;
+    $("modsDeleteFilesBtn").textContent = filesRemove.size
+        ? t("mods.deleteFiles", { n: filesRemove.size }) : t("fm.delete");
+}
+
+
+function toggleAllFiles(on) {
+    filesRemove.clear();
+    if (on) modsData.files.forEach(function(f) { filesRemove.add(f.name); });
+    renderModFiles();
+}
+
+
+function renderPickedBar() {
+    $("modsPickedBar").hidden = modsPicked.size === 0;
+    $("modsPickedText").textContent = tn("mods.picked", modsPicked.size);
 }
 
 
 async function searchMods(event) {
 
-    event.preventDefault();
+    if (event) event.preventDefault();
 
     const box = $("modsResults");
     box.textContent = "";
@@ -13777,14 +14212,18 @@ async function searchMods(event) {
         }
 
         data.results.forEach(function(item) {
-            const button = el("button", "btn btn-start btn-small", added.has(item.slug) ? t("mods.added") : t("mods.add"));
-            button.disabled = added.has(item.slug);
-            button.onclick = async function() {
-                button.disabled = true;
-                if (await addMod(item)) button.textContent = t("mods.added");
-                else button.disabled = false;
-            };
-            box.append(modRow(item, button));
+
+            if (added.has(item.slug)) {
+                box.append(modRow(item, el("span", "tag green", t("mods.added")), null));
+                return;
+            }
+
+            const check = modCheck(modsPicked.has(item.slug), function(on) {
+                if (on) modsPicked.set(item.slug, item); else modsPicked.delete(item.slug);
+                renderPickedBar();
+            });
+
+            box.append(modRow(item, null, check));
         });
     } catch (error) {
         box.textContent = "";
@@ -13793,41 +14232,71 @@ async function searchMods(event) {
 }
 
 
-function appliedToast(data) {
-    showToast(data.applied === "pending" ? t("mods.pendingToast") : t("mods.appliedToast"),
+function appliedToast(data, message) {
+    if (data.applied === "none") return;
+    showToast(message + " " + (data.applied === "pending" ? t("mods.pendingToast") : t("mods.appliedToast")),
         data.applied === "pending" ? "amber" : "green");
 }
 
 
-async function addMod(item) {
+async function addPicked() {
+    await addMods({ items: Array.from(modsPicked.values()) });
+    modsPicked.clear();
+    renderPickedBar();
+    searchMods();
+}
+
+
+async function addPasted() {
+    const text = $("modsPaste").value.trim();
+    if (!text) return;
+
+    const data = await addMods({ text: text });
+    if (data && !data.skipped.length) $("modsPaste").value = "";
+}
+
+
+async function addMods(body) {
     try {
         const data = await api("/mods/add", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ slug: item.slug, name: item.name, icon: item.icon, env: item.env })
+            body: JSON.stringify(body)
         });
-        appliedToast(data);
+
+        if (data.added.length) appliedToast(data, tn("mods.addedN", data.added.length));
+        else if (!data.skipped.length) showToast(t("mods.nothingNew"), "amber");
+
+        if (data.skipped.length) {
+            const lines = data.skipped.map(function(s) {
+                return s.name + ": " + t(s.reason === "client" ? "mods.skipClient" : "mods.skipMissing");
+            });
+            openModal({ title: t("mods.skippedTitle"), body: lines, okText: t("modal.ok"), hideCancel: true });
+        }
+
         loadMods();
-        return true;
+        return data;
     } catch (error) {
         if (error.message !== "auth") showToast(error.message, "red");
-        return false;
+        return null;
     }
 }
 
 
-async function removeMod(slug, name) {
+async function removeSelectedMods() {
 
-    const ok = await confirmDialog(t("mods.remove"), t("mods.removeDesc", { name: name }));
+    if (!modsRemove.size) return;
+
+    const ok = await confirmDialog(t("mods.remove"), tn("mods.removeDesc", modsRemove.size));
     if (!ok) return;
 
     try {
         const data = await api("/mods/remove", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ slug: slug })
+            body: JSON.stringify({ slugs: Array.from(modsRemove) })
         });
-        appliedToast(data);
+        appliedToast(data, tn("mods.removedN", data.removed));
         loadMods();
     } catch (error) {
         if (error.message !== "auth") showToast(error.message, "red");
@@ -13835,17 +14304,100 @@ async function removeMod(slug, name) {
 }
 
 
-async function deleteModFile(name) {
+function copyModList() {
+    const list = modsData.projects.map(function(p) { return p.slug; }).join("\n");
+    if (!list) return;
+    copyText(list);
+}
 
-    const ok = await confirmDialog(t("fm.delete"), t("fm.deleteFile", { name: name }));
+
+async function deleteSelectedFiles() {
+
+    if (!filesRemove.size) return;
+
+    const ok = await confirmDialog(t("fm.delete"), t("fm.deleteMany", { n: filesRemove.size }));
     if (!ok) return;
 
     try {
-        await api("/files/delete?path=" + encodeURIComponent(modsData.folder + "/" + name), { method: "POST" });
-        showToast(t("fm.deleted"), "green");
+        const data = await api("/files/delete-many", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ paths: Array.from(filesRemove).map(function(n) { return modsData.folder + "/" + n; }) })
+        });
+        showToast(t("fm.deletedMany", { n: data.count }), "green");
         loadMods();
     } catch (error) {
         if (error.message !== "auth") showToast(error.message, "red");
+    }
+}
+
+
+async function searchModpacks(event) {
+
+    if (event) event.preventDefault();
+
+    const box = $("modpackResults");
+    box.textContent = "";
+    box.append(el("div", "list-empty", t("form.loading")));
+
+    try {
+        const response = await fetch("/modpacks?q=" + encodeURIComponent($("modpackQuery").value.trim()));
+        const data = await response.json();
+        box.textContent = "";
+
+        if (data.ok === false) {
+            box.append(el("div", "list-empty", serverText(data.message)));
+            return;
+        }
+
+        if (!data.results.length) box.append(el("div", "list-empty", t("mods.noResults")));
+
+        data.results.forEach(function(item) {
+            const use = el("button", "btn btn-start btn-small", t("mods.useModpack"));
+            use.onclick = function() { useModpack(item); };
+            box.append(modRow(item, use, null));
+        });
+    } catch (error) {
+        box.textContent = "";
+        box.append(el("div", "list-empty", t("login.noConnection")));
+    }
+}
+
+
+async function useModpack(item) {
+
+    const ok = await openModal({
+        title: t("mods.useModpack") + ": " + item.name,
+        body: [t("mods.useModpackDesc")],
+        okText: t("mods.useModpack"),
+        okClass: "btn-warn"
+    });
+
+    if (!ok) return;
+
+    try {
+        const data = await postJson("/server/modpack/set", { slug: item.slug, name: item.name, icon: item.icon });
+        appliedToast(data, t("mods.modpackSet"));
+        await update();
+        loadMods();
+    } catch (error) {
+        showToast(error.message, "red");
+    }
+}
+
+
+async function clearModpack() {
+
+    const ok = await confirmDialog(t("mods.clearModpack"), t("mods.clearModpackDesc"), t("mods.clearModpack"));
+    if (!ok) return;
+
+    try {
+        const data = await postJson("/server/modpack/clear", {});
+        appliedToast(data, t("mods.modpackCleared"));
+        await update();
+        loadMods();
+    } catch (error) {
+        showToast(error.message, "red");
     }
 }
 
@@ -14230,6 +14782,12 @@ class Handler(BaseHTTPRequestHandler):
 
             self.guarded(lambda: self.send_json(cf_search("modpacks", param("q"))))
 
+        elif path == "/modpacks":
+            if not user and core.get_setting("signup") != "yes" and core.user_count() > 0:
+                return self.deny(user)
+
+            self.guarded(lambda: self.send_json(modrinth_search("modpacks", param("q"))))
+
         elif path == "/versions":
             self.guarded(lambda: self.send_json(available_versions(param("type"), param("mc"))))
 
@@ -14303,7 +14861,7 @@ class Handler(BaseHTTPRequestHandler):
             if not kind:
                 raise FileError("Este tipo de servidor no admite mods ni plugins")
 
-            self.send_json(cf_search(kind, param("q"), srv.version, srv.type))
+            self.send_json(modrinth_search(kind, param("q"), srv.version, srv.type))
 
         elif path == "/files/list":
             self.send_json(list_files(param("path")))
@@ -14501,10 +15059,16 @@ class Handler(BaseHTTPRequestHandler):
             self.send_json(set_motd(srv, self.json_body(4096).get("motd", ""), user))
 
         elif path == "/mods/add":
-            self.send_json(add_mod(self.json_body(4096), user))
+            self.send_json(add_mods(self.json_body(), user))
 
         elif path == "/mods/remove":
-            self.send_json(remove_mod(self.json_body(4096), user))
+            self.send_json(remove_mods(self.json_body(), user))
+
+        elif path == "/server/modpack/set":
+            self.send_json(set_modpack(self.json_body(4096), user))
+
+        elif path == "/server/modpack/clear":
+            self.send_json(clear_modpack(user))
 
         elif path == "/mods/apply":
             self.send_json(apply_pending(srv, user))
