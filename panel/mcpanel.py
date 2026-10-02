@@ -6698,7 +6698,7 @@ body,
 
 <button id="soundBtn" class="icon-btn sound-btn" onclick="toggleSound()"></button>
 
-<div id="livePill" class="pill">
+<div id="livePill" class="pill" hidden>
 <span class="dot"></span>
 <span id="liveText" data-i18n="live.connecting">Connecting</span>
 </div>
@@ -9293,9 +9293,7 @@ async function update() {
         $("statusText").textContent = label;
         setTone($("status"), tone);
 
-        $("liveText").textContent = t("live.on");
-        setTone($("livePill"), "green");
-        $("livePill").classList.add("pulse");
+        setConnection(true);
 
         $("docker").textContent =
             t("docker." + data.status) || data.status;
@@ -9323,9 +9321,7 @@ async function update() {
         $("statusText").textContent = t("status.disconnected");
         setTone($("status"), "red");
 
-        $("liveText").textContent = t("live.off");
-        setTone($("livePill"), "red");
-        $("livePill").classList.remove("pulse");
+        setConnection(false);
     }
 }
 
@@ -12842,14 +12838,28 @@ function serverStatus(server) {
 }
 
 
+// Aviso de conexion: solo aparece cuando el panel deja de responder
+function setConnection(ok) {
+    const pill = $("livePill");
+    pill.hidden = ok;
+
+    if (!ok) {
+        $("liveText").textContent = t("live.off");
+        setTone(pill, "red");
+    }
+}
+
+
 async function loadServers() {
 
     if (currentView !== "home") return;
 
     try {
         const data = await (await fetch("/servers?t=" + Date.now())).json();
+        setConnection(true);
         renderServers(data.servers || []);
     } catch (error) {
+        setConnection(false);
     }
 }
 
