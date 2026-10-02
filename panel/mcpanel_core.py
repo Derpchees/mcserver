@@ -88,6 +88,13 @@ DB_PATH = os.path.join(STATE_ROOT, "mcpanel.db")
 
 SERVER_TYPES = ("FORGE", "FABRIC", "PAPER", "VANILLA")
 
+# Variable del contenedor que fija la version del cargador de cada tipo
+LOADER_ENV = {
+    "FORGE": "FORGE_VERSION",
+    "FABRIC": "FABRIC_LOADER_VERSION",
+    "PAPER": "PAPER_BUILD"
+}
+
 
 def system_ram_gb():
     with open("/proc/meminfo", "r") as f:
@@ -135,6 +142,7 @@ CREATE TABLE IF NOT EXISTS servers (
     backup_dir TEXT NOT NULL DEFAULT '',
     container TEXT NOT NULL DEFAULT '',
     extra_env TEXT NOT NULL DEFAULT '',
+    java TEXT NOT NULL DEFAULT '',
     created INTEGER NOT NULL
 );
 
@@ -175,6 +183,9 @@ def db():
 
                 if "extra_env" not in columns:
                     conn.execute("ALTER TABLE servers ADD COLUMN extra_env TEXT NOT NULL DEFAULT ''")
+
+                if "java" not in columns:
+                    conn.execute("ALTER TABLE servers ADD COLUMN java TEXT NOT NULL DEFAULT ''")
 
                 _db_ready = True
 
@@ -305,7 +316,7 @@ class Server:
 
     FIELDS = ("id", "slug", "name", "owner_id", "type", "version", "max_gb", "cpu",
               "game_port", "internal_port", "autostop", "idle_minutes", "backups",
-              "backup_time", "backup_keep", "state", "state_detail", "created")
+              "backup_time", "backup_keep", "state", "state_detail", "java", "created")
 
     def __init__(self, row):
         for field in self.FIELDS:
@@ -390,7 +401,9 @@ class Server:
             "backup_time": self.backup_time,
             "backup_keep": self.backup_keep,
             "state": self.state,
-            "state_detail": self.state_detail
+            "state_detail": self.state_detail,
+            "loader": self.extra_env.get(LOADER_ENV.get(self.type, ""), ""),
+            "java": self.java
         }
 
 
@@ -533,7 +546,8 @@ def build_container(srv, start=False):
     srv.ensure_dirs()
     srv.write_env()
 
-    image = "%s:%s" % (IMAGE, java_tag(srv.version))
+    # Java elegido a mano o el que corresponde a la version de Minecraft
+    image = "%s:%s" % (IMAGE, ("java" + srv.java) if srv.java else java_tag(srv.version))
 
     if docker("image", "inspect", image).returncode != 0:
         docker("pull", "-q", image, check=True)

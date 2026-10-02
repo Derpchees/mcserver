@@ -2211,6 +2211,22 @@ def clean_server_fields(data, user, partial=False):
 
         out["cpu"] = cpu
 
+    if "loader" in data:
+        loader = str(data.get("loader") or "").strip()
+
+        if loader and not LOADER_TEXT.match(loader):
+            raise FileError("Versión del cargador no válida")
+
+        out["loader"] = loader
+
+    if "java" in data:
+        java = str(data.get("java") or "")
+
+        if java not in JAVA_CHOICES:
+            raise FileError("Versión de Java no válida")
+
+        out["java"] = java
+
     for key in ("autostop", "backups"):
         if key in data:
             out[key] = 1 if data[key] in (True, 1, "1", "true", "yes") else 0
@@ -2271,7 +2287,13 @@ def create_server_for(user, data):
     if len(core.servers_of(user["id"])) >= limits_for(user)["max_servers"]:
         raise FileError("Ya tienes el máximo de servidores permitidos")
 
-    srv = core.create_server_row(owner_id=user["id"], type_=fields.pop("type"), **fields)
+    type_ = fields.pop("type")
+    loader = fields.pop("loader", "")
+
+    if loader and type_ in LOADER_ENV:
+        fields["extra_env"] = json.dumps({LOADER_ENV[type_]: loader})
+
+    srv = core.create_server_row(owner_id=user["id"], type_=type_, **fields)
     log_server_action(srv, "servidor creado por " + user["username"])
     build_in_background(srv, start=True)
 
@@ -2378,7 +2400,30 @@ def list_public_servers():
 
 def update_server_config(srv, data, user):
     fields = clean_server_fields(data, user, partial=True)
-    changed = {k: v for k, v in fields.items() if getattr(srv, k) != v}
+    loader = fields.pop("loader", None)
+    new_type = fields.get("type", srv.type)
+
+    # El cargador vive en las variables extra del contenedor
+    if loader is not None or new_type != srv.type:
+        extra = dict(srv.extra_env)
+
+        for key in LOADER_ENV.values():
+            extra.pop(key, None)
+
+        value = loader if loader is not None else ""
+
+        if value and new_type in LOADER_ENV:
+            extra[LOADER_ENV[new_type]] = value
+
+        if extra != srv.extra_env:
+            fields["extra_env"] = json.dumps(extra) if extra else ""
+
+    def current(key):
+        if key == "extra_env":
+            return json.dumps(srv.extra_env) if srv.extra_env else ""
+        return getattr(srv, key)
+
+    changed = {k: v for k, v in fields.items() if current(k) != v}
 
     if not changed:
         return {"ok": True, "message": "Sin cambios", "rebuild": False}
@@ -2389,7 +2434,7 @@ def update_server_config(srv, data, user):
     log_server_action(fresh, "configuración cambiada por %s: %s" % (user["username"], ", ".join(sorted(changed))))
 
     # Recursos, tipo o version: hay que recrear el contenedor
-    rebuild = bool({"type", "version", "max_gb", "cpu", "autostop", "name"} & set(changed))
+    rebuild = bool({"type", "version", "max_gb", "cpu", "autostop", "name", "extra_env", "java"} & set(changed))
 
     if rebuild:
         running = core.container_state(fresh)[0] == "running"
@@ -2608,6 +2653,158 @@ def user_events(user, since):
     return {"last": events[-1]["id"] if events else since, "events": events}
 
 
+
+
+# ============================================================
+# Versiones disponibles (Minecraft y cargadores de mods)
+# ============================================================
+
+import urllib.request
+import xml.etree.ElementTree as ET
+
+VERSIONS_TTL = 6 * 3600
+LOADER_TEXT = re.compile(r"^[0-9A-Za-z._+-]{1,40}$")
+JAVA_CHOICES = ("", "8", "11", "17", "21", "25")
+
+LOADER_ENV = core.LOADER_ENV
+
+_versions_cache = {}
+_versions_lock = threading.Lock()
+
+
+def fetch_url(url, timeout=12):
+    request = urllib.request.Request(url, headers={"User-Agent": "MCServer-panel"})
+
+    with urllib.request.urlopen(request, timeout=timeout) as response:
+        return response.read()
+
+
+def cached(key, producer):
+    with _versions_lock:
+        entry = _versions_cache.get(key)
+
+        if entry and time.time() - entry[0] < VERSIONS_TTL:
+            return entry[1]
+
+    value = producer()
+
+    with _versions_lock:
+        _versions_cache[key] = (time.time(), value)
+
+    return value
+
+
+def is_stable(version):
+    return not re.search(r"(pre|rc|snapshot|alpha|beta|w\d)", version, re.I)
+
+
+def vanilla_versions():
+    data = json.loads(fetch_url("https://piston-meta.mojang.com/mc/game/version_manifest_v2.json"))
+    return [v["id"] for v in data["versions"] if v.get("type") == "release"]
+
+
+def paper_versions():
+    data = json.loads(fetch_url("https://fill.papermc.io/v3/projects/paper"))
+    versions = []
+
+    for group in data.get("versions", {}).values():
+        versions += [v for v in group if is_stable(v)]
+
+    return versions
+
+
+def paper_builds(mc):
+    data = json.loads(fetch_url("https://fill.papermc.io/v3/projects/paper/versions/%s/builds"
+                                % urllib.parse.quote(mc)))
+    builds = sorted(data, key=lambda b: b["id"], reverse=True)
+    stable = [str(b["id"]) for b in builds if b.get("channel") == "STABLE"]
+
+    return {"loaders": [str(b["id"]) for b in builds][:40], "recommended": stable[0] if stable else None}
+
+
+def fabric_versions():
+    data = json.loads(fetch_url("https://meta.fabricmc.net/v2/versions/game"))
+    return [v["version"] for v in data if v.get("stable")]
+
+
+def fabric_loaders():
+    data = json.loads(fetch_url("https://meta.fabricmc.net/v2/versions/loader"))
+    stable = [v["version"] for v in data if v.get("stable")]
+    return {"loaders": [v["version"] for v in data][:40], "recommended": stable[0] if stable else None}
+
+
+def forge_index():
+    # maven-metadata.xml tiene todas las versiones como "<mc>-<forge>"
+    root = ET.fromstring(fetch_url("https://maven.minecraftforge.net/net/minecraftforge/forge/maven-metadata.xml"))
+    by_mc = {}
+
+    for node in root.iter("version"):
+        mc, _, forge = (node.text or "").partition("-")
+
+        if forge:
+            by_mc.setdefault(mc, []).append(forge.split("-")[0])
+
+    try:
+        promos = json.loads(fetch_url(
+            "https://files.minecraftforge.net/net/minecraftforge/forge/promotions_slim.json"
+        )).get("promos", {})
+    except Exception:
+        promos = {}
+
+    return by_mc, promos
+
+
+def version_key(text):
+    return [int(p) if p.isdigit() else -1 for p in re.split(r"[.\-]", text)]
+
+
+def forge_versions():
+    by_mc, _ = cached("forge-index", forge_index)
+    return sorted((mc for mc in by_mc if is_stable(mc)), key=version_key, reverse=True)
+
+
+def forge_builds(mc):
+    by_mc, promos = cached("forge-index", forge_index)
+    builds = sorted(set(by_mc.get(mc, [])), key=version_key, reverse=True)
+    recommended = promos.get(mc + "-recommended") or promos.get(mc + "-latest") or (builds[0] if builds else None)
+
+    return {"loaders": builds[:40], "recommended": recommended}
+
+
+def available_versions(type_, mc=""):
+    # Sin mc: versiones de Minecraft del tipo. Con mc: versiones del cargador.
+    type_ = (type_ or "").upper()
+
+    if type_ not in core.SERVER_TYPES:
+        raise FileError("Tipo de servidor no válido")
+
+    try:
+        if not mc:
+            producer = {"VANILLA": vanilla_versions, "PAPER": paper_versions,
+                        "FABRIC": fabric_versions, "FORGE": forge_versions}[type_]
+            return {"versions": cached("mc-" + type_, producer)}
+
+        if not LOADER_TEXT.match(mc):
+            raise FileError("Versión no válida")
+
+        if type_ == "VANILLA":
+            return {"loaders": [], "recommended": None}
+
+        if type_ == "FABRIC":
+            return cached("fabric-loaders", fabric_loaders)
+
+        if type_ == "PAPER":
+            return cached("paper-" + mc, lambda: paper_builds(mc))
+
+        return forge_builds(mc)
+
+    except FileError:
+        raise
+    except Exception as error:
+        # Sin internet o la fuente cambio: el panel deja escribir la version a mano
+        return {"versions": [], "loaders": [], "error": str(error)[:120]}
+
+
 HTML = r"""
 <!DOCTYPE html>
 <html lang="es">
@@ -2716,6 +2913,8 @@ header {
     align-items: center;
     gap: 16px;
     margin-bottom: 22px;
+    position: relative;
+    z-index: 30;
 }
 
 .brand {
@@ -6662,6 +6861,18 @@ const I18N = {
         "form.type": "Type",
         "form.version": "Minecraft version",
         "form.versionHint": "LATEST or a version such as 1.20.1. Java is chosen automatically.",
+        "form.loader": "Loader version",
+        "form.loaderForge": "Forge version",
+        "form.loaderFabric": "Fabric loader",
+        "form.loaderPaper": "Paper build",
+        "form.loaderAuto": "Automatic",
+        "form.loaderRecommended": "Recommended ({v})",
+        "form.java": "Java",
+        "form.javaAuto": "Automatic (recommended)",
+        "form.javaHint": "Automatic picks the right Java for the Minecraft version.",
+        "form.loading": "Loading...",
+        "form.latest": "Latest ({v})",
+        "form.versionManual": "The version list could not be loaded; type the version.",
         "form.ram": "RAM (GB)",
         "form.ramHint": "Up to {max} GB (this machine has {total} GB).",
         "form.cpu": "CPU cores",
@@ -7169,6 +7380,18 @@ const I18N = {
         "form.type": "Tipo",
         "form.version": "Versión de Minecraft",
         "form.versionHint": "LATEST o una versión como 1.20.1. Java se elige solo.",
+        "form.loader": "Versión del cargador",
+        "form.loaderForge": "Versión de Forge",
+        "form.loaderFabric": "Cargador de Fabric",
+        "form.loaderPaper": "Build de Paper",
+        "form.loaderAuto": "Automático",
+        "form.loaderRecommended": "Recomendada ({v})",
+        "form.java": "Java",
+        "form.javaAuto": "Automático (recomendado)",
+        "form.javaHint": "Automático elige el Java correcto para la versión de Minecraft.",
+        "form.loading": "Cargando...",
+        "form.latest": "La más reciente ({v})",
+        "form.versionManual": "No se pudo cargar la lista de versiones; escribe la versión.",
         "form.ram": "RAM (GB)",
         "form.ramHint": "Hasta {max} GB (este equipo tiene {total} GB).",
         "form.cpu": "Núcleos de CPU",
@@ -7345,6 +7568,8 @@ const SERVER_MESSAGES_EN = {
     "Los minutos sin jugadores deben estar entre 1 y 1440": "Minutes without players must be between 1 and 1440",
     "Hora de respaldo no válida (HH:MM)": "Invalid backup time (HH:MM)",
     "Respaldos a conservar: entre 1 y 60": "Backups to keep: between 1 and 60",
+    "Versión del cargador no válida": "Invalid loader version",
+    "Versión de Java no válida": "Invalid Java version",
     "Movido": "Moved",
     "No hay elementos seleccionados": "No items selected",
     "No se puede mover la carpeta raíz": "The root folder cannot be moved",
@@ -11270,10 +11495,17 @@ function serverFields(prefix, values) {
 
     const field = function(label, input, hint) {
         const wrap = el("label", "field");
-        wrap.append(el("span", "field-label", label), input);
+        const labelEl = el("span", "field-label", label);
+        wrap.append(labelEl, input);
         if (hint) wrap.append(el("span", "field-hint", hint));
         box.append(wrap);
-        return input;
+        return wrap;
+    };
+
+    const option = function(select, value, label) {
+        const node = el("option", "", label);
+        node.value = value;
+        select.append(node);
     };
 
     const name = el("input", "input");
@@ -11286,19 +11518,26 @@ function serverFields(prefix, values) {
     const type = el("select", "input");
     type.id = prefix + "Type";
     [["PAPER", "type.paper"], ["FORGE", "type.forge"], ["FABRIC", "type.fabric"], ["VANILLA", "type.vanilla"]]
-        .forEach(function([value, key]) {
-            const option = el("option", "", t(key));
-            option.value = value;
-            type.append(option);
-        });
+        .forEach(function([value, key]) { option(type, value, t(key)); });
     type.value = v.type || "PAPER";
     field(t("form.type"), type);
 
-    const version = el("input", "input");
+    // Version de Minecraft: lista oficial del tipo elegido
+    const version = el("select", "input");
     version.id = prefix + "Version";
-    version.value = v.version || "LATEST";
-    version.placeholder = "LATEST, 1.20.1, 1.21.4...";
-    field(t("form.version"), version, t("form.versionHint"));
+    const versionWrap = field(t("form.version"), version);
+
+    // Version del cargador (Forge, Fabric) o build (Paper)
+    const loader = el("select", "input");
+    loader.id = prefix + "Loader";
+    const loaderWrap = field(t("form.loader"), loader);
+
+    const java = el("select", "input");
+    java.id = prefix + "Java";
+    option(java, "", t("form.javaAuto"));
+    ["25", "21", "17", "11", "8"].forEach(function(n) { option(java, n, "Java " + n); });
+    java.value = v.java || "";
+    field(t("form.java"), java, t("form.javaHint"));
 
     const ram = el("input", "input");
     ram.id = prefix + "Ram";
@@ -11318,6 +11557,109 @@ function serverFields(prefix, values) {
         ? t("form.cpuHintMax", { max: limits.max_cpu })
         : t("form.cpuHint", { cores: limits.cores }));
 
+    let wantedVersion = v.version || "LATEST";
+    let wantedLoader = v.loader || "";
+
+    // Si no se pueden consultar las versiones, se escribe a mano
+    const manualVersion = function() {
+        const input = el("input", "input");
+        input.id = prefix + "Version";
+        input.value = wantedVersion;
+        input.placeholder = "LATEST, 1.20.1, 26.1...";
+        versionWrap.replaceChild(input, versionWrap.querySelector("#" + prefix + "Version"));
+        versionWrap.append(el("span", "field-hint", t("form.versionManual")));
+    };
+
+    const loadLoaders = async function() {
+
+        const typeValue = type.value;
+        const mc = $(prefix + "Version").value;
+        const label = { FORGE: "form.loaderForge", FABRIC: "form.loaderFabric", PAPER: "form.loaderPaper" }[typeValue];
+
+        loaderWrap.hidden = !label;
+        if (!label) return;
+
+        loaderWrap.querySelector(".field-label").textContent = t(label);
+        loader.textContent = "";
+        option(loader, "", t("form.loading"));
+        loader.disabled = true;
+
+        if (!mc || mc === "LATEST") {
+            loader.textContent = "";
+            option(loader, "", t("form.loaderAuto"));
+            loader.disabled = false;
+            return;
+        }
+
+        try {
+            const data = await (await fetch("/versions?type=" + typeValue + "&mc=" + encodeURIComponent(mc))).json();
+            loader.textContent = "";
+            option(loader, "", data.recommended ? t("form.loaderRecommended", { v: data.recommended }) : t("form.loaderAuto"));
+            (data.loaders || []).forEach(function(item) { option(loader, item, item); });
+
+            if (wantedLoader && (data.loaders || []).includes(wantedLoader)) loader.value = wantedLoader;
+            else if (wantedLoader) { option(loader, wantedLoader, wantedLoader); loader.value = wantedLoader; }
+        } catch (error) {
+            loader.textContent = "";
+            option(loader, "", t("form.loaderAuto"));
+        }
+
+        loader.disabled = false;
+    };
+
+    const loadVersions = async function() {
+
+        const select = $(prefix + "Version");
+
+        if (!select || select.tagName !== "SELECT") return loadLoaders();
+
+        select.textContent = "";
+        option(select, "", t("form.loading"));
+        select.disabled = true;
+
+        try {
+            const data = await (await fetch("/versions?type=" + type.value)).json();
+
+            if (!data.versions || !data.versions.length) {
+                manualVersion();
+                return loadLoaders();
+            }
+
+            select.textContent = "";
+            option(select, "LATEST", t("form.latest", { v: data.versions[0] }));
+            data.versions.forEach(function(item) { option(select, item, item); });
+
+            if (wantedVersion !== "LATEST" && !data.versions.includes(wantedVersion)) {
+                option(select, wantedVersion, wantedVersion);
+            }
+
+            select.value = wantedVersion;
+            select.disabled = false;
+        } catch (error) {
+            manualVersion();
+        }
+
+        loadLoaders();
+    };
+
+    type.onchange = function() {
+        wantedLoader = "";
+        loadVersions();
+    };
+
+    version.onchange = function() {
+        wantedVersion = version.value;
+        wantedLoader = "";
+        loadLoaders();
+    };
+
+    loader.onchange = function() {
+        wantedLoader = loader.value;
+    };
+
+    // El formulario se agrega al documento despues de crearse
+    setTimeout(loadVersions, 0);
+
     return box;
 }
 
@@ -11326,7 +11668,9 @@ function readServerFields(prefix) {
     return {
         name: $(prefix + "Name").value.trim(),
         type: $(prefix + "Type").value,
-        version: $(prefix + "Version").value.trim() || "LATEST",
+        version: ($(prefix + "Version").value || "").trim() || "LATEST",
+        loader: $(prefix + "Loader") && !$(prefix + "Loader").closest(".field").hidden ? $(prefix + "Loader").value : "",
+        java: $(prefix + "Java").value,
         max_gb: Number($(prefix + "Ram").value),
         cpu: Number($(prefix + "Cpu").value)
     };
@@ -12336,6 +12680,9 @@ class Handler(BaseHTTPRequestHandler):
 
         elif path == "/servers":
             self.send_json({"servers": list_public_servers()})
+
+        elif path == "/versions":
+            self.guarded(lambda: self.send_json(available_versions(param("type"), param("mc"))))
 
         elif path == "/stats":
             if not user:
