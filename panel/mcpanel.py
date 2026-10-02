@@ -3613,6 +3613,10 @@ header {
 }
 
 .brand {
+    color: inherit;
+    text-decoration: none;
+    border-radius: 12px;
+    transition: opacity .15s ease;
     display: flex;
     align-items: center;
     gap: 14px;
@@ -5753,6 +5757,10 @@ h1 {
     min-width: 3.4em;
 }
 
+.brand:hover {
+    opacity: .85;
+}
+
 /* ---------- Animaciones ---------- */
 
 @keyframes rise {
@@ -6624,13 +6632,13 @@ body,
 
 <header>
 
-<div class="brand">
+<a class="brand" href="#/" data-i18n-title="nav.toList" title="All servers">
 <div class="logo"><div class="grass"></div><div class="dirt"></div></div>
 <div>
 <h1>__SYSTEM_NAME__</h1>
 <div id="appSubtitle" class="subtitle">Minecraft</div>
 </div>
-</div>
+</a>
 
 <div class="header-right">
 
@@ -7888,6 +7896,7 @@ const I18N = {
         "un.doneDesc": "The panel is being removed. This page will stop working in a few seconds.",
 
         "nav.servers": "Servers",
+        "nav.toList": "All servers",
         "nav.home": "Servers",
         "nav.login": "Log in",
         "nav.signup": "Create account",
@@ -8535,6 +8544,7 @@ const I18N = {
         "un.doneDesc": "Se está quitando el panel. Esta página dejará de funcionar en unos segundos.",
 
         "nav.servers": "Servidores",
+        "nav.toList": "Todos los servidores",
         "nav.home": "Servidores",
         "nav.login": "Entrar",
         "nav.signup": "Crear cuenta",
