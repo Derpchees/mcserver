@@ -3563,6 +3563,12 @@ try {
     box-sizing: border-box;
 }
 
+/* Lo marcado como oculto se oculta siempre, aunque su clase defina
+   display (botones, pestanas): sin esto el atributo hidden no gana */
+[hidden] {
+    display: none !important;
+}
+
 html, body {
     margin: 0;
     background: var(--bg);
