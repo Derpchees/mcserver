@@ -235,10 +235,13 @@ if [ -z "$UI_LANG" ]; then
     esac
 fi
 
-. /etc/os-release 2>/dev/null || true
+# /etc/os-release define VERSION y otras variables: se lee en un subshell
+# para no pisar las del instalador
+OS_IDS=$( . /etc/os-release 2>/dev/null; echo "${ID:-} ${ID_LIKE:-}" )
+OS_NAME=$( . /etc/os-release 2>/dev/null; echo "${PRETTY_NAME:-?}" )
 
-if ! command -v apt-get >/dev/null || [[ ! " ${ID:-} ${ID_LIKE:-} " =~ (debian|ubuntu) ]]; then
-    die "$(t bad_os) ${PRETTY_NAME:-?}"
+if ! command -v apt-get >/dev/null || [[ ! " $OS_IDS " =~ (debian|ubuntu) ]]; then
+    die "$(t bad_os) $OS_NAME"
 fi
 
 # Si se corre solo el script (curl | bash), se descarga el resto del repo

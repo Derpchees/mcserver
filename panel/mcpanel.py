@@ -2109,11 +2109,11 @@ def user_info(user):
     return {"id": user["id"], "username": user["username"], "role": user["role"]}
 
 
-def limits_for(user):
+def limits_for(user, as_admin=False):
     settings = core.all_settings()
     ram = core.system_ram_gb()
     cores = os.cpu_count() or 1
-    admin = bool(user) and user["role"] == "admin"
+    admin = as_admin or (bool(user) and user["role"] == "admin")
 
     max_ram = ram if admin else min(ram, int(settings["max_ram_gb"] or 1))
     max_cpu = int(settings["max_cpu"] or 0)
@@ -2129,12 +2129,14 @@ def limits_for(user):
 
 def auth_state(user):
     settings = core.all_settings()
+    setup = core.user_count() == 0
 
     return {
-        "setup": core.user_count() == 0,
+        "setup": setup,
         "user": user_info(user),
         "signup": settings["signup"] == "yes",
-        "limits": limits_for(user),
+        # En la configuracion inicial quien llena el formulario sera el admin
+        "limits": limits_for(user, as_admin=setup),
         "system_name": core.SYSTEM_NAME,
         "types": list(core.SERVER_TYPES),
         "my_servers": [s.id for s in core.servers_of(user["id"])] if user else []
