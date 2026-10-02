@@ -86,11 +86,12 @@ DOCKER_NETWORK = cfg("DOCKER_NETWORK", "mcpanel-net")
 
 DB_PATH = os.path.join(STATE_ROOT, "mcpanel.db")
 
-SERVER_TYPES = ("FORGE", "FABRIC", "PAPER", "VANILLA")
+SERVER_TYPES = ("FORGE", "NEOFORGE", "FABRIC", "PAPER", "VANILLA")
 
 # Variable del contenedor que fija la version del cargador de cada tipo
 LOADER_ENV = {
     "FORGE": "FORGE_VERSION",
+    "NEOFORGE": "NEOFORGE_VERSION",
     "FABRIC": "FABRIC_LOADER_VERSION",
     "PAPER": "PAPER_BUILD"
 }
@@ -228,7 +229,8 @@ def default_settings():
         "max_ram_gb": str(max(1, min(8, ram - 2))),
         "max_cpu": "0",
         "public_host": PUBLIC_HOST,
-        "max_servers_per_user": "1"
+        "max_servers_per_user": "1",
+        "default_server": ""
     }
 
 

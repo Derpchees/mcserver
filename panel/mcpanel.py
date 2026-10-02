@@ -2139,8 +2139,18 @@ def auth_state(user):
         "limits": limits_for(user, as_admin=setup),
         "system_name": core.SYSTEM_NAME,
         "types": list(core.SERVER_TYPES),
-        "my_servers": [s.id for s in core.servers_of(user["id"])] if user else []
+        "my_servers": [s.id for s in core.servers_of(user["id"])] if user else [],
+        "default_server": default_server_id()
     }
+
+
+def default_server_id():
+    value = core.get_setting("default_server")
+
+    if value.isdigit() and core.get_server(int(value)):
+        return int(value)
+
+    return None
 
 
 def check_new_password(password):
@@ -2594,6 +2604,14 @@ def admin_save_settings(data):
 
             core.set_setting(key, value)
 
+    if "default_server" in data:
+        value = str(data["default_server"] or "").strip()
+
+        if value and not (value.isdigit() and core.get_server(int(value))):
+            raise FileError("Ese servidor no existe")
+
+        core.set_setting("default_server", value)
+
     if "public_host" in data:
         host = str(data["public_host"]).strip()
 
@@ -2758,6 +2776,46 @@ def version_key(text):
     return [int(p) if p.isdigit() else -1 for p in re.split(r"[.\-]", text)]
 
 
+def neoforge_mc(version):
+    # NeoForge sigue a Minecraft: 21.4.x -> 1.21.4, 21.0.x -> 1.21,
+    # y desde la numeracion por ano 26.1.0.x -> 26.1, 26.1.1.x -> 26.1.1
+    parts = version.split("-")[0].split(".")
+
+    if len(parts) < 3 or not parts[0].isdigit():
+        return None
+
+    if int(parts[0]) >= 26:
+        return parts[0] + "." + parts[1] + ("" if parts[2] == "0" else "." + parts[2])
+
+    return "1." + parts[0] + ("" if parts[1] == "0" else "." + parts[1])
+
+
+def neoforge_index():
+    root = ET.fromstring(fetch_url("https://maven.neoforged.net/releases/net/neoforged/neoforge/maven-metadata.xml"))
+    by_mc = {}
+
+    for node in root.iter("version"):
+        mc = neoforge_mc(node.text or "")
+
+        if mc:
+            by_mc.setdefault(mc, []).append(node.text)
+
+    return by_mc
+
+
+def neoforge_versions():
+    by_mc = cached("neoforge-index", neoforge_index)
+    return sorted(by_mc, key=version_key, reverse=True)
+
+
+def neoforge_builds(mc):
+    by_mc = cached("neoforge-index", neoforge_index)
+    builds = sorted(set(by_mc.get(mc, [])), key=version_key, reverse=True)
+    stable = [b for b in builds if is_stable(b)]
+
+    return {"loaders": builds[:40], "recommended": stable[0] if stable else (builds[0] if builds else None)}
+
+
 def forge_versions():
     by_mc, _ = cached("forge-index", forge_index)
     return sorted((mc for mc in by_mc if is_stable(mc)), key=version_key, reverse=True)
@@ -2781,7 +2839,8 @@ def available_versions(type_, mc=""):
     try:
         if not mc:
             producer = {"VANILLA": vanilla_versions, "PAPER": paper_versions,
-                        "FABRIC": fabric_versions, "FORGE": forge_versions}[type_]
+                        "FABRIC": fabric_versions, "FORGE": forge_versions,
+                        "NEOFORGE": neoforge_versions}[type_]
             return {"versions": cached("mc-" + type_, producer)}
 
         if not LOADER_TEXT.match(mc):
@@ -2795,6 +2854,9 @@ def available_versions(type_, mc=""):
 
         if type_ == "PAPER":
             return cached("paper-" + mc, lambda: paper_builds(mc))
+
+        if type_ == "NEOFORGE":
+            return neoforge_builds(mc)
 
         return forge_builds(mc)
 
@@ -5847,6 +5909,13 @@ body,
 </div>
 <div class="set-row">
 <div class="set-text">
+<div class="set-label" data-i18n="adm.default">Default server</div>
+<div class="set-desc" data-i18n="adm.defaultDesc">The panel opens directly on this server. The Servers button still shows the full list.</div>
+</div>
+<select id="admDefault" class="input set-input wide"></select>
+</div>
+<div class="set-row">
+<div class="set-text">
 <div class="set-label" data-i18n="adm.host">Public address</div>
 <div class="set-desc" data-i18n="adm.hostDesc">IP or domain players use; each server adds its own port.</div>
 </div>
@@ -6863,6 +6932,7 @@ const I18N = {
         "form.versionHint": "LATEST or a version such as 1.20.1. Java is chosen automatically.",
         "form.loader": "Loader version",
         "form.loaderForge": "Forge version",
+        "form.loaderNeoforge": "NeoForge version",
         "form.loaderFabric": "Fabric loader",
         "form.loaderPaper": "Paper build",
         "form.loaderAuto": "Automatic",
@@ -6880,6 +6950,7 @@ const I18N = {
         "form.cpuHintMax": "Up to {max} cores.",
         "type.paper": "Plugins, optimized (Paper)",
         "type.forge": "Mods (Forge)",
+        "type.neoforge": "Mods (NeoForge)",
         "type.fabric": "Mods (Fabric)",
         "type.vanilla": "Official, no mods (Vanilla)",
         "srv.by": "by {owner}",
@@ -6924,6 +6995,7 @@ const I18N = {
         "adm.cpuHint": "0 = no limit. This machine has {cores}.",
         "adm.servers": "Servers per user",
         "adm.serversDesc": "Administrators have no limit.",
+        "adm.default": "Default server", "adm.defaultDesc": "The panel opens directly on this server. The Servers button still shows the full list.", "adm.defaultNone": "None (show the server list)",
         "adm.host": "Public address",
         "adm.hostDesc": "IP or domain players use; each server adds its own port.",
         "adm.usersTitle": "Users",
@@ -7382,6 +7454,7 @@ const I18N = {
         "form.versionHint": "LATEST o una versión como 1.20.1. Java se elige solo.",
         "form.loader": "Versión del cargador",
         "form.loaderForge": "Versión de Forge",
+        "form.loaderNeoforge": "Versión de NeoForge",
         "form.loaderFabric": "Cargador de Fabric",
         "form.loaderPaper": "Build de Paper",
         "form.loaderAuto": "Automático",
@@ -7399,6 +7472,7 @@ const I18N = {
         "form.cpuHintMax": "Hasta {max} núcleos.",
         "type.paper": "Plugins, optimizado (Paper)",
         "type.forge": "Mods (Forge)",
+        "type.neoforge": "Mods (NeoForge)",
         "type.fabric": "Mods (Fabric)",
         "type.vanilla": "Oficial, sin mods (Vanilla)",
         "srv.by": "de {owner}",
@@ -7443,6 +7517,7 @@ const I18N = {
         "adm.cpuHint": "0 = sin límite. Este equipo tiene {cores}.",
         "adm.servers": "Servidores por usuario",
         "adm.serversDesc": "Los administradores no tienen límite.",
+        "adm.default": "Servidor por defecto", "adm.defaultDesc": "El panel abre directamente este servidor. El botón Servidores sigue mostrando la lista completa.", "adm.defaultNone": "Ninguno (mostrar la lista de servidores)",
         "adm.host": "Dirección pública",
         "adm.hostDesc": "IP o dominio que usan los jugadores; cada servidor agrega su puerto.",
         "adm.usersTitle": "Usuarios",
@@ -7570,6 +7645,7 @@ const SERVER_MESSAGES_EN = {
     "Respaldos a conservar: entre 1 y 60": "Backups to keep: between 1 and 60",
     "Versión del cargador no válida": "Invalid loader version",
     "Versión de Java no válida": "Invalid Java version",
+    "Ese servidor no existe": "That server does not exist",
     "Movido": "Moved",
     "No hay elementos seleccionados": "No items selected",
     "No se puede mover la carpeta raíz": "The root folder cannot be moved",
@@ -11517,7 +11593,7 @@ function serverFields(prefix, values) {
 
     const type = el("select", "input");
     type.id = prefix + "Type";
-    [["PAPER", "type.paper"], ["FORGE", "type.forge"], ["FABRIC", "type.fabric"], ["VANILLA", "type.vanilla"]]
+    [["PAPER", "type.paper"], ["FORGE", "type.forge"], ["NEOFORGE", "type.neoforge"], ["FABRIC", "type.fabric"], ["VANILLA", "type.vanilla"]]
         .forEach(function([value, key]) { option(type, value, t(key)); });
     type.value = v.type || "PAPER";
     field(t("form.type"), type);
@@ -11574,7 +11650,7 @@ function serverFields(prefix, values) {
 
         const typeValue = type.value;
         const mc = $(prefix + "Version").value;
-        const label = { FORGE: "form.loaderForge", FABRIC: "form.loaderFabric", PAPER: "form.loaderPaper" }[typeValue];
+        const label = { FORGE: "form.loaderForge", NEOFORGE: "form.loaderNeoforge", FABRIC: "form.loaderFabric", PAPER: "form.loaderPaper" }[typeValue];
 
         loaderWrap.hidden = !label;
         if (!label) return;
@@ -12088,6 +12164,21 @@ function renderAdminSettings(settings) {
     $("admCpuHint").textContent = t("adm.cpuHint", { cores: settings.limits.cores });
     $("admServers").value = settings.max_servers_per_user;
     $("admHost").value = settings.public_host || "";
+
+    const select = $("admDefault");
+    select.textContent = "";
+    const none = el("option", "", t("adm.defaultNone"));
+    none.value = "";
+    select.append(none);
+
+    fetch("/servers?t=" + Date.now()).then(function(r) { return r.json(); }).then(function(data) {
+        (data.servers || []).forEach(function(server) {
+            const option = el("option", "", server.name + (server.owner ? " (" + server.owner + ")" : ""));
+            option.value = String(server.id);
+            select.append(option);
+        });
+        select.value = settings.default_server || "";
+    }).catch(function() {});
 }
 
 
@@ -12098,7 +12189,8 @@ async function saveAdminSettings() {
             max_ram_gb: Number($("admRam").value),
             max_cpu: Number($("admCpu").value),
             max_servers_per_user: Number($("admServers").value),
-            public_host: $("admHost").value.trim()
+            public_host: $("admHost").value.trim(),
+            default_server: $("admDefault").value
         });
         showToast(t("set.saved"), "green");
         await refreshAuth();
@@ -12315,6 +12407,11 @@ function startNotifications() {
 
 async function initApp() {
     await refreshAuth();
+
+    // Solo al abrir el panel sin ruta: el boton Servidores (#/) sigue mostrando la lista
+    if ((!location.hash || location.hash === "#") && authState.default_server && !authState.setup) {
+        history.replaceState(null, "", "#/s/" + authState.default_server);
+    }
     startNotifications();
     window.addEventListener("hashchange", route);
     await route();

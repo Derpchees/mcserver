@@ -30,7 +30,7 @@ Each person creates an account from the login page and, in the same step, their 
 - **Safe deleting**: deleting a server, an account or the whole system asks for a double confirmation.
 - English and Spanish, light and dark themes.
 
-Each Minecraft server runs in the [`itzg/minecraft-server`](https://github.com/itzg/docker-minecraft-server) image. Types: **Forge, Fabric, Paper and Vanilla**.
+Each Minecraft server runs in the [`itzg/minecraft-server`](https://github.com/itzg/docker-minecraft-server) image. Types: **Forge, NeoForge, Fabric, Paper and Vanilla**.
 
 ## Requirements
 

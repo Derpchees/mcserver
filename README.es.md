@@ -30,7 +30,7 @@ Cada persona crea su cuenta desde la pantalla de entrar y, en el mismo paso, su 
 - **Borrado seguro**: borrar un servidor, una cuenta o todo el sistema pide doble confirmación.
 - Inglés y español, tema claro y oscuro.
 
-Cada servidor de Minecraft corre en la imagen [`itzg/minecraft-server`](https://github.com/itzg/docker-minecraft-server). Tipos: **Forge, Fabric, Paper y Vanilla**.
+Cada servidor de Minecraft corre en la imagen [`itzg/minecraft-server`](https://github.com/itzg/docker-minecraft-server). Tipos: **Forge, NeoForge, Fabric, Paper y Vanilla**.
 
 ## Requisitos
 
