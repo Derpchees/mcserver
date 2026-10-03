@@ -1,0 +1,195 @@
+/* ---------- Chat ---------- */
+
+#consoleTools,
+#chatTools:not([hidden]) {
+    min-height: 30px;
+    display: flex;
+    align-items: center;
+}
+
+.chat {
+    height: var(--pane-height);
+    overflow-y: auto;
+    padding: 10px 12px 14px;
+    background: var(--surface);
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    font-size: 13.5px;
+}
+
+.chat[hidden] {
+    display: none;
+}
+
+.chat-empty {
+    margin: auto;
+    color: var(--dim);
+}
+
+.chat-day {
+    align-self: center;
+    margin: 14px 0 8px;
+    padding: 3px 12px;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+    background: var(--surface-2);
+    color: var(--muted);
+    font-size: 11.5px;
+    font-weight: 600;
+}
+
+.chat-day:first-child {
+    margin-top: 4px;
+}
+
+.chat-msg {
+    display: grid;
+    grid-template-columns: 48px 24px minmax(0, 1fr);
+    gap: 10px;
+    align-items: start;
+    padding: 5px 8px;
+    border-radius: 8px;
+}
+
+.chat-msg:hover {
+    background: var(--surface-2);
+}
+
+.chat-time {
+    color: var(--dim);
+    font-family: var(--mono);
+    font-size: 11.5px;
+    padding-top: 3px;
+    font-variant-numeric: tabular-nums;
+}
+
+.chat-avatar {
+    width: 24px;
+    height: 24px;
+}
+
+.chat-avatar.server {
+    background: var(--green-bg);
+    color: var(--green);
+}
+
+.chat-body {
+    line-height: 1.5;
+    overflow-wrap: anywhere;
+}
+
+.chat-name {
+    font-weight: 700;
+    margin-right: 8px;
+    color: var(--text);
+}
+
+.chat-say .chat-name {
+    color: var(--green);
+}
+
+.chat-text {
+    color: var(--text);
+}
+
+.chat-sys {
+    grid-template-columns: 48px 24px minmax(0, 1fr);
+    padding-top: 3px;
+    padding-bottom: 3px;
+}
+
+.chat-sys .chat-text {
+    color: var(--muted);
+    font-size: 12.5px;
+    padding-top: 1px;
+}
+
+.chat-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    margin: 8px auto 0;
+    background: var(--dim);
+}
+
+.chat-join .chat-dot { background: var(--green); }
+.chat-leave .chat-dot { background: var(--amber); }
+.chat-advancement .chat-dot { background: var(--blue); }
+
+.chat-prompt {
+    color: var(--blue);
+    display: grid;
+    place-items: center;
+}
+
+.badge {
+    display: inline-grid;
+    place-items: center;
+    min-width: 17px;
+    height: 17px;
+    padding: 0 5px;
+    border-radius: 999px;
+    background: var(--green);
+    color: var(--on-green);
+    font-size: 10.5px;
+    font-weight: 700;
+}
+
+.badge[hidden] {
+    display: none;
+}
+
+/* ---------- Paneles chat / consola ---------- */
+
+.pane-tabs {
+    display: none;
+    margin-bottom: 14px;
+}
+
+.panes {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 16px;
+}
+
+.pane {
+    min-width: 0;
+}
+
+.pane-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+    min-height: 30px;
+    margin-bottom: 12px;
+}
+
+@media (max-width: 899px) {
+
+    .pane-tabs {
+        display: inline-flex;
+    }
+
+    .panes {
+        grid-template-columns: 1fr;
+    }
+
+    .panes[data-pane="chat"] .pane-console,
+    .panes[data-pane="console"] .pane-chat {
+        display: none;
+    }
+
+    .pane-head .card-title {
+        display: none;
+    }
+
+    .pane-head {
+        justify-content: flex-end;
+    }
+
+    .pane-head:has(> .hint:empty) {
+        display: none;
+    }
+}

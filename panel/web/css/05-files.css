@@ -1,0 +1,233 @@
+/* ---------- Gestor de archivos ---------- */
+
+.fm {
+    position: relative;
+}
+
+.fm-nav {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 12px;
+}
+
+.fm-nav .breadcrumb {
+    flex: 1;
+    min-width: 0;
+    margin: 0;
+}
+
+.fm-up {
+    width: 32px;
+    height: 32px;
+    flex: none;
+    border-radius: 8px;
+    border: 1px solid var(--border-strong);
+    background: var(--surface-2);
+    color: var(--text);
+}
+
+.fm-up:disabled {
+    opacity: .35;
+    cursor: not-allowed;
+}
+
+/* .fm-nav delante: .input (mas abajo) fija width: 100% */
+.fm-nav .fm-filter {
+    width: 210px;
+    flex: 0 0 210px;
+    padding: 7px 11px;
+    font-size: 13px;
+}
+
+.fm-bar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+    padding: 8px 8px 8px 14px;
+    margin-bottom: 12px;
+    border-radius: 10px;
+    background: var(--blue-bg);
+    border: 1px solid color-mix(in srgb, var(--blue) 35%, transparent);
+    animation: rise .2s ease both;
+}
+
+.fm-bar[hidden] {
+    display: none;
+}
+
+.fm-bar-move {
+    background: var(--amber-bg);
+    border-color: color-mix(in srgb, var(--amber) 40%, transparent);
+}
+
+.fm-bar-text {
+    font-size: 13px;
+    font-weight: 600;
+}
+
+.fm-drop {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    padding: 14px;
+    margin-bottom: 12px;
+    border: 1.5px dashed var(--border-strong);
+    border-radius: 12px;
+    background: transparent;
+    color: var(--muted);
+    font-family: inherit;
+    font-size: 13px;
+    cursor: pointer;
+    transition: border-color .15s, color .15s, background .15s;
+}
+
+.fm-drop:hover {
+    border-color: var(--green);
+    color: var(--text);
+    background: var(--green-bg);
+}
+
+.fm-drop svg {
+    width: 18px;
+    height: 18px;
+}
+
+/* Aviso flotante mientras se arrastra un archivo del equipo */
+.fm-overlay {
+    position: sticky;
+    bottom: 16px;
+    z-index: 5;
+    display: none;
+    align-items: center;
+    gap: 10px;
+    width: fit-content;
+    max-width: 100%;
+    margin: 14px auto 0;
+    padding: 11px 18px;
+    border-radius: 999px;
+    background: var(--green);
+    color: var(--on-green);
+    font-size: 13.5px;
+    font-weight: 700;
+    box-shadow: 0 12px 30px rgba(0, 0, 0, .3);
+    pointer-events: none;
+    animation: rise .18s ease both;
+}
+
+.fm.dragging .fm-overlay {
+    display: flex;
+}
+
+/* Al arrastrar, todo el explorador se marca como zona para soltar */
+.fm.dragging::after {
+    content: "";
+    position: absolute;
+    inset: -1px;
+    z-index: 4;
+    border: 2px dashed var(--green);
+    border-radius: var(--radius);
+    background: color-mix(in srgb, var(--green) 9%, transparent);
+    pointer-events: none;
+    animation: fade .15s ease both;
+}
+
+.fm-hint {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    margin-top: 14px;
+    color: var(--dim);
+    font-size: 12.5px;
+}
+
+.fm-hint svg {
+    width: 14px;
+    height: 14px;
+}
+
+.files .row {
+    grid-template-columns: 18px 24px minmax(0, 1fr) 100px 150px 118px;
+    user-select: none;
+    transition: background .12s;
+}
+
+.files .row-head {
+    background: var(--surface-2);
+    color: var(--muted);
+    font-size: 12px;
+    font-weight: 600;
+    padding-top: 8px;
+    padding-bottom: 8px;
+}
+
+#fileList .row:first-child {
+    border-top: 1px solid var(--border);
+}
+
+.col-btn {
+    border: 0;
+    padding: 0;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+}
+
+.col-btn.row-size {
+    text-align: right;
+}
+
+.col-btn:hover {
+    color: var(--text);
+}
+
+.sort-mark {
+    color: var(--green);
+}
+
+.check {
+    width: 16px;
+    height: 16px;
+    margin: 0;
+    accent-color: var(--green);
+    cursor: pointer;
+}
+
+.files .row.selected,
+.files .row.selected:hover {
+    background: var(--blue-bg);
+}
+
+.files .row-actions {
+    opacity: .8;
+}
+
+.row.drop-target,
+.breadcrumb a.drop-target {
+    outline: 2px dashed var(--green);
+    outline-offset: -2px;
+    background: var(--green-bg);
+}
+
+@media (max-width: 700px) {
+
+    .files .row {
+        grid-template-columns: 18px 22px minmax(0, 1fr) auto;
+    }
+
+    .fm-nav {
+        flex-wrap: wrap;
+    }
+
+    .fm-nav .fm-filter {
+        width: 100%;
+        flex: 1 1 100%;
+    }
+}

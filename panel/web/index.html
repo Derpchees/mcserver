@@ -1,0 +1,906 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+
+<title>__SYSTEM_NAME__</title>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2016%2016%22%20shape-rendering%3D%22crispEdges%22%3E%3Crect%20width%3D%2216%22%20height%3D%2216%22%20rx%3D%223%22%20fill%3D%22%238a5a3b%22%2F%3E%3Cpath%20fill%3D%22%237a4e33%22%20d%3D%22M2%208h2v2H2zM9%209h2v2H9zM5%2012h2v2H5zM12%2012h2v2h-2zM7%207h1v1H7z%22%2F%3E%3Cpath%20fill%3D%22%23936240%22%20d%3D%22M11%207h2v1h-2zM3%2011h1v1H3zM9%2013h2v1H9z%22%2F%3E%3Cpath%20fill%3D%22%235fbf3f%22%20d%3D%22M3%200h10a3%203%200%200%201%203%203v3H0V3a3%203%200%200%201%203-3z%22%2F%3E%3Cpath%20fill%3D%22%234ea634%22%20d%3D%22M0%205h3v2H0zM6%205h2v3H6zM11%205h3v2h-3zM4%202h2v2H4zM10%201h2v2h-2z%22%2F%3E%3Cpath%20fill%3D%22%2362c444%22%20d%3D%22M8%202h2v2H8zM1%203h2v1H1zM13%203h2v1h-2z%22%2F%3E%3C%2Fsvg%3E">
+
+<script>
+try {
+    var savedTheme = localStorage.getItem("mc-theme");
+    document.documentElement.dataset.theme =
+        savedTheme === "light" || savedTheme === "dark" ? savedTheme
+        : (window.matchMedia && matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark");
+} catch (e) {
+    document.documentElement.dataset.theme = "dark";
+}
+</script>
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+
+<link rel="stylesheet" href="/app.css?v=__VERSION__">
+</head>
+
+
+<body>
+
+<div class="container">
+
+<header>
+
+<div class="header-left">
+<a class="brand" href="#/" data-i18n-title="nav.toList" title="All servers">
+<div class="logo"><div class="grass"></div><div class="dirt"></div></div>
+<div>
+<h1>__SYSTEM_NAME__</h1>
+<div id="appSubtitle" class="subtitle">Minecraft</div>
+</div>
+</a>
+<button id="motdEdit" class="icon-btn motd-edit" data-i18n-title="motd.edit" title="Edit server message" onclick="editMotd()" hidden>
+<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>
+</button>
+</div>
+
+<div class="header-right">
+
+<button id="homeBtn" class="btn btn-ghost btn-small" onclick="go('#/')" hidden>
+<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="width:13px;height:13px"><path d="M15 18l-6-6 6-6"/></svg>
+<span data-i18n="nav.servers">Servers</span>
+</button>
+
+<nav id="serverNav" class="tabs" hidden>
+<button class="tab-btn active" data-tab="panel" onclick="showTab('panel')">
+<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg>
+<span data-i18n="tab.panel">Panel</span>
+</button>
+<button class="tab-btn" data-tab="players" onclick="showTab('players')">
+<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+<span data-i18n="tab.players">Players</span>
+</button>
+<button class="tab-btn" data-tab="mods" onclick="showTab('mods')">
+<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><path d="M3.3 7 12 12l8.7-5M12 22V12"/></svg>
+<span id="modsTabLabel" data-i18n="mods.tab">Mods</span>
+</button>
+<button class="tab-btn" data-tab="files" onclick="showTab('files')">
+<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>
+<span data-i18n="tab.files">Files</span>
+</button>
+<button class="tab-btn" data-tab="settings" onclick="showTab('settings')">
+<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0"/><circle cx="16" cy="6" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="18" cy="18" r="2"/></svg>
+<span data-i18n="tab.settings">Settings</span>
+</button>
+</nav>
+
+<div id="accountArea" class="account-area"></div>
+
+<div class="lang-switch" data-i18n-title="lang.title">
+<button class="lang-btn" data-lang="en" onclick="setLang('en')">EN</button>
+<button class="lang-btn" data-lang="es" onclick="setLang('es')">ES</button>
+</div>
+
+<button id="themeBtn" class="icon-btn sound-btn" onclick="toggleTheme()"></button>
+
+<button id="soundBtn" class="icon-btn sound-btn" onclick="toggleSound()"></button>
+
+<div id="livePill" class="pill" hidden>
+<span class="dot"></span>
+<span id="liveText" data-i18n="live.connecting">Connecting</span>
+</div>
+
+</div>
+
+</header>
+
+
+<section id="view-home" class="tab-page" hidden>
+
+<div class="card home-intro" id="homeIntro" hidden>
+<h3 data-i18n="home.emptyTitle">No servers yet</h3>
+<p class="hint" data-i18n="home.emptyDesc">Create an account to set up your own Minecraft server.</p>
+</div>
+
+<div id="serverGrid" class="srv-grid"></div>
+
+</section>
+
+
+<section id="view-auth" class="tab-page" hidden>
+<div id="authCard" class="card login auth-card"></div>
+</section>
+
+
+<section id="view-account" class="tab-page" hidden>
+
+<div class="card">
+<div class="card-head">
+<h3 class="card-title"><span data-i18n="nav.account">My account</span></h3>
+</div>
+<div class="acc-who">
+<span id="accountName" class="adm-name"></span>
+<span id="accountRole" class="tag"></span>
+</div>
+</div>
+
+<div class="card">
+<div class="card-head">
+<h3 class="card-title" data-i18n="acc.pwTitle">Change password</h3>
+</div>
+<form class="form-grid" onsubmit="savePassword(event)">
+<label class="field"><span class="field-label" data-i18n="acc.currentPw">Current password</span><input id="pwCurrent" class="input" type="password" autocomplete="current-password"></label>
+<label class="field"><span class="field-label" data-i18n="acc.newPw">New password</span><input id="pwNew" class="input" type="password" autocomplete="new-password"></label>
+<label class="field"><span class="field-label" data-i18n="auth.password2">Repeat password</span><input id="pwNew2" class="input" type="password" autocomplete="new-password"></label>
+<div class="field field-end"><button class="btn btn-start btn-small" type="submit" data-i18n="set.save">Save</button></div>
+</form>
+</div>
+
+<div class="card">
+<div class="set-row">
+<div class="set-text">
+<div class="set-label" data-i18n="ntf.title">Browser notifications</div>
+<div class="set-desc" data-i18n="ntf.desc">Get a notice when your server starts, stops or crashes, and when a backup finishes or fails, even with the tab in the background.</div>
+<div id="notifyState" class="pl-sub"></div>
+</div>
+<button id="notifySwitch" class="switch" type="button" role="switch" aria-checked="false" onclick="toggleNotifications()"><span class="switch-knob"></span></button>
+</div>
+</div>
+
+<div class="card danger-zone">
+<div class="card-head">
+<h3 class="card-title is-red" data-i18n="un.title">Danger zone</h3>
+</div>
+<div class="set-row">
+<div class="set-text">
+<div class="set-label" data-i18n="acc.deleteTitle">Delete my account</div>
+<div class="set-desc" data-i18n="acc.deleteShort">Deletes your account and your servers. You choose whether the worlds and backups are kept.</div>
+</div>
+<button class="btn btn-stop btn-small" onclick="deleteMyAccount()" data-i18n="acc.deleteBtn">Delete account</button>
+</div>
+</div>
+
+</section>
+
+
+<section id="view-admin" class="tab-page" hidden>
+
+<div class="card">
+<div class="card-head">
+<h3 class="card-title" data-i18n="adm.systemTitle">System</h3>
+<button class="btn btn-start btn-small" onclick="saveAdminSettings()" data-i18n="set.save">Save</button>
+</div>
+<div class="set-list">
+<div class="set-row">
+<div class="set-text">
+<div class="set-label" data-i18n="adm.signup">Allow new accounts</div>
+<div class="set-desc" data-i18n="adm.signupDesc">Anyone who can open the panel can create an account and a server within the limits below.</div>
+</div>
+<label class="switch-check"><input id="admSignup" type="checkbox"></label>
+</div>
+<div class="set-row">
+<div class="set-text">
+<div class="set-label" data-i18n="adm.public">Visitors can see and start servers</div>
+<div class="set-desc" data-i18n="adm.publicDesc">People without an account see the server list and status and can start servers. Turn it off to require logging in for everything.</div>
+</div>
+<label class="switch-check"><input id="admPublic" type="checkbox"></label>
+</div>
+<div class="set-row">
+<div class="set-text">
+<div class="set-label" data-i18n="adm.cf">CurseForge API key</div>
+<div class="set-desc" data-i18n="adm.cfDesc">Needed for mods, plugins and modpacks from CurseForge. Get one for free at console.curseforge.com.</div>
+<div id="admCfState" class="pl-sub"></div>
+</div>
+<input id="admCf" class="input set-input wide" type="password" autocomplete="off">
+</div>
+<div class="set-row">
+<div class="set-text">
+<div class="set-label" data-i18n="adm.ram">Max RAM per server (GB)</div>
+<div id="admRamHint" class="set-desc"></div>
+</div>
+<input id="admRam" class="input set-input" type="number" min="1">
+</div>
+<div class="set-row">
+<div class="set-text">
+<div class="set-label" data-i18n="adm.cpu">Max CPU cores per server</div>
+<div id="admCpuHint" class="set-desc"></div>
+</div>
+<input id="admCpu" class="input set-input" type="number" min="0">
+</div>
+<div class="set-row">
+<div class="set-text">
+<div class="set-label" data-i18n="adm.servers">Servers per user</div>
+<div class="set-desc" data-i18n="adm.serversDesc">Administrators have no limit.</div>
+</div>
+<input id="admServers" class="input set-input" type="number" min="1" max="50">
+</div>
+<div class="set-row">
+<div class="set-text">
+<div class="set-label" data-i18n="adm.default">Default server</div>
+<div class="set-desc" data-i18n="adm.defaultDesc">Opens for people who have not starred a server of their own. Each person can pick theirs with the star next to Start.</div>
+</div>
+<select id="admDefault" class="input set-input wide"></select>
+</div>
+<div class="set-row">
+<div class="set-text">
+<div class="set-label" data-i18n="adm.host">Public address</div>
+<div class="set-desc" data-i18n="adm.hostDesc">IP or domain players use; each server adds its own port.</div>
+</div>
+<input id="admHost" class="input set-input wide" placeholder="192.168.1.10">
+</div>
+</div>
+</div>
+
+<div class="card">
+<div class="card-head">
+<h3 class="card-title" data-i18n="adm.usersTitle">Users</h3>
+</div>
+<div id="admUsers" class="adm-list"></div>
+</div>
+
+<div id="admDanger" class="card danger-zone">
+<div class="card-head">
+<h3 class="card-title is-red" data-i18n="un.title">Danger zone</h3>
+</div>
+<div class="set-row">
+<div class="set-text">
+<div class="set-label" data-i18n="un.label">Uninstall everything</div>
+<div class="set-desc" data-i18n="un.desc">Removes the panel, its services and every Minecraft container. You can choose to keep the worlds and the backups.</div>
+</div>
+<button class="btn btn-stop btn-small" onclick="uninstallSystem()" data-i18n="un.button">Uninstall</button>
+</div>
+</div>
+
+</section>
+
+
+<section id="tab-panel" class="tab-page" hidden>
+
+<div class="card hero">
+
+<div>
+
+<div id="status" class="status">
+<span class="dot"></span>
+<span id="statusText" data-i18n="status.loading">Loading...</span>
+</div>
+
+<div class="address">
+<span id="address">-</span>
+<button class="icon-btn" data-i18n-title="addr.copy" title="Copy address" onclick="copyAddress()">
+<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+</button>
+</div>
+
+
+</div>
+
+
+<div class="buttons">
+
+<button id="defaultStar" class="icon-btn star-btn" onclick="toggleDefaultServer()" hidden>
+<svg viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M12 2.8l2.8 5.7 6.3.9-4.6 4.4 1.1 6.2L12 17l-5.6 3 1.1-6.2-4.6-4.4 6.3-.9z"/></svg>
+</button>
+
+<button id="start" class="btn btn-start" onclick="action('start')">
+<svg viewBox="0 0 24 24" fill="currentColor"><path d="M7 4.5v15a1 1 0 0 0 1.5.86l12-7.5a1 1 0 0 0 0-1.72l-12-7.5A1 1 0 0 0 7 4.5z"/></svg>
+<span data-i18n="btn.start">Start</span>
+</button>
+
+<button id="restart" class="btn btn-ghost" onclick="confirmRestart()">
+<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-3-6.7"/><path d="M21 3v6h-6"/></svg>
+<span data-i18n="btn.restart">Restart</span>
+</button>
+
+<button id="stop" class="btn btn-stop" onclick="confirmStop()">
+<svg viewBox="0 0 24 24" fill="currentColor"><rect x="5" y="5" width="14" height="14" rx="2"/></svg>
+<span data-i18n="btn.stop">Stop</span>
+</button>
+
+</div>
+
+<div class="online">
+<span class="online-label" data-i18n="online.label">Online</span>
+<div id="online" style="display:contents">
+<span class="online-empty">-</span>
+</div>
+</div>
+
+</div>
+
+
+<div class="grid">
+
+<div class="stat">
+<div class="label">
+<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><path d="M3.3 7 12 12l8.7-5M12 22V12"/></svg>
+<span data-i18n="stat.container">Container</span>
+</div>
+<div id="docker" class="value">-</div>
+<div class="value-sub">Docker</div>
+</div>
+
+<div class="stat">
+<div class="label">
+<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
+<span data-i18n="stat.health">Health</span>
+</div>
+<div id="health" class="value">-</div>
+<div class="value-sub">Healthcheck</div>
+</div>
+
+<div class="stat">
+<div class="label">
+<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+<span data-i18n="stat.players">Players</span>
+</div>
+<div id="players" class="value">-</div>
+<div class="value-sub" data-i18n="stat.playersSub">Online now</div>
+</div>
+
+<div class="stat">
+<div class="label">
+<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.55a11 11 0 0 1 14.08 0M1.42 9a16 16 0 0 1 21.16 0M8.53 16.11a6 6 0 0 1 6.95 0"/><circle cx="12" cy="20" r="1"/></svg>
+<span data-i18n="stat.connections">Connections</span>
+</div>
+<div id="attempts" class="value">-</div>
+<div class="value-sub" data-i18n="stat.connSub">Start requests</div>
+</div>
+
+</div>
+
+
+<div class="card">
+
+<div class="autostop">
+
+<div>
+<h3 class="card-title">
+<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="13" r="8"/><path d="M12 9v4l2 2M9 2h6"/></svg>
+<span data-i18n="autostop.title">Auto shutdown</span>
+</h3>
+<div id="autostopText" class="autostop-description">
+<span data-i18n="autostop.checking">Checking...</span>
+</div>
+</div>
+
+<div>
+<div id="timer" class="timer">--:--</div>
+<div id="timerLabel" class="timer-label" data-i18n="timer.remaining">Time left</div>
+</div>
+
+</div>
+
+<div class="progress">
+<div id="progress" class="progress-bar"></div>
+</div>
+
+</div>
+
+
+<div class="card">
+
+<div class="card-head">
+<h3 class="card-title">
+<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/><path d="M9 1v3M15 1v3M9 20v3M15 20v3M20 9h3M20 14h3M1 9h3M1 14h3"/></svg>
+<span data-i18n="res.title">System resources</span>
+</h3>
+<span id="uptime" class="hint"></span>
+</div>
+
+<div class="resources">
+
+<div class="resource">
+<div class="resource-top">
+<div>
+<div class="label">CPU</div>
+<div id="cpuValue" class="value">-</div>
+</div>
+<div id="tempBox" hidden>
+<div class="label" data-i18n="res.temp">Temperature</div>
+<div class="value"><span id="tempValue">-</span><span id="tempState" class="temp-state"></span></div>
+</div>
+<div id="cpuSub" class="resource-sub"></div>
+</div>
+<div id="cpuChart" class="spark" data-kind="cpu"></div>
+<div class="spark-axis"><span data-i18n="res.ago3">3 min ago</span><span data-i18n="res.now">now</span></div>
+</div>
+
+<div class="resource">
+<div class="resource-top">
+<div>
+<div class="label" data-i18n="res.memory">Memory</div>
+<div id="memValue" class="value">-</div>
+</div>
+<div id="memSub" class="resource-sub"></div>
+</div>
+<div id="memChart" class="spark" data-kind="mem"></div>
+<div class="spark-axis"><span data-i18n="res.ago3">3 min ago</span><span data-i18n="res.now">now</span></div>
+</div>
+
+<div class="resource storage">
+<div class="label" data-i18n="res.storage">Storage</div>
+<div id="disks" class="disks"></div>
+</div>
+
+</div>
+
+</div>
+
+
+<div id="consoleCard" class="card">
+
+<!-- En celular se usan estas pestanas; en pantallas anchas se ocultan
+     y los dos paneles se muestran lado a lado -->
+<nav class="tabs pane-tabs">
+<button class="tab-btn active" data-pane="chat" onclick="showPane('chat')">
+<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 21l1.9-5.4A8 8 0 1 1 21 12z"/></svg>
+<span data-i18n="chat.title">Chat</span>
+<span id="chatBadge" class="badge" hidden></span>
+</button>
+<button class="tab-btn" data-pane="console" onclick="showPane('console')">
+<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m4 17 6-6-6-6M12 19h8"/></svg>
+<span data-i18n="console.title">Console</span>
+</button>
+</nav>
+
+<div id="panes" class="panes" data-pane="chat">
+
+<div class="pane pane-chat">
+
+<div class="pane-head">
+<h3 class="card-title">
+<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 21l1.9-5.4A8 8 0 1 1 21 12z"/></svg>
+<span data-i18n="chat.title">Chat</span>
+</h3>
+<span id="chatSince" class="hint"></span>
+</div>
+
+<div class="console-wrap">
+
+<div id="chat" class="chat">
+<div class="chat-empty" data-i18n="chat.loading">Loading chat...</div>
+</div>
+
+<div id="chatBar" class="command">
+<span class="prompt chat-prompt">
+<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="width:14px;height:14px"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 21l1.9-5.4A8 8 0 1 1 21 12z"/></svg>
+</span>
+<input
+id="chatInput"
+data-i18n-placeholder="chat.placeholder"
+placeholder="Message all players"
+autocomplete="off"
+maxlength="240"
+onkeydown="if (event.key === 'Enter') sendChat()"
+>
+<button class="btn btn-send btn-small" onclick="sendChat()">
+<span data-i18n="console.send">Send</span>
+<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="width:13px;height:13px"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+</button>
+</div>
+
+</div>
+
+</div>
+
+
+<div class="pane pane-console">
+
+<div class="pane-head">
+<h3 class="card-title">
+<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m4 17 6-6-6-6M12 19h8"/></svg>
+<span data-i18n="console.title">Console</span>
+</h3>
+<div class="toolbar">
+<span class="hint" data-i18n="console.hidden">Player checks hidden</span>
+<button class="btn btn-ghost btn-small" onclick="clearConsole()" data-i18n="console.clear">Clear</button>
+</div>
+</div>
+
+<div class="console-wrap">
+
+<div id="console" class="console">
+<div class="console-empty" data-i18n="console.loading">Loading console...</div>
+</div>
+
+<div id="commandBar" class="command" hidden>
+<span class="prompt">&gt;</span>
+<input
+id="command"
+data-i18n-placeholder="console.placeholder"
+placeholder="Type a command, e.g. say Hello"
+autocomplete="off"
+spellcheck="false"
+onkeydown="onCommandKey(event)"
+>
+<button class="icon-btn" data-i18n-title="console.lock" title="Lock console and files" onclick="logout()">
+<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>
+</button>
+<button class="btn btn-send btn-small" onclick="sendCommand()">
+<span data-i18n="console.send">Send</span>
+<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="width:13px;height:13px"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+</button>
+</div>
+
+<form id="commandLock" class="command" onsubmit="unlockConsole(event)">
+<span class="prompt lock">
+<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="width:14px;height:14px"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>
+</span>
+<span id="commandLockText" class="command-lock-text"></span>
+<button id="commandLockBtn" class="btn btn-ghost btn-small" type="submit" data-i18n="auth.login">Log in</button>
+</form>
+
+</div>
+
+</div>
+
+</div>
+
+</div>
+
+
+<div class="card">
+
+<div class="card-head">
+<h3 class="card-title">
+<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 8v4l3 3"/><circle cx="12" cy="12" r="9"/></svg>
+<span data-i18n="act.title">Recent activity</span>
+</h3>
+<span id="lastStart" class="hint"></span>
+</div>
+
+<div id="events" class="events">
+<div class="hint" data-i18n="act.none">No activity recorded.</div>
+</div>
+
+</div>
+
+</section>
+
+
+<section id="tab-mods" class="tab-page" hidden>
+
+<div id="modsPending" class="fm-bar fm-bar-move" hidden>
+<span class="fm-bar-text" data-i18n="mods.pending">There are changes waiting: they apply when the server restarts.</span>
+<button class="btn btn-warn btn-small" onclick="applyMods()" data-i18n="mods.apply">Apply and restart</button>
+</div>
+
+<div id="modpackCurrent" class="card" hidden>
+<div class="card-head">
+<h3 class="card-title" data-i18n="mods.modpackTitle2">Modpack</h3>
+<button class="btn btn-ghost btn-small" onclick="clearModpack()" data-i18n="mods.clearModpack">Stop using the modpack</button>
+</div>
+<div id="modpackCurrentRow" class="mod-list"></div>
+</div>
+
+<div id="modsUnsupported" class="card" hidden>
+<h3 class="card-title" data-i18n="mods.unsupportedTitle">This server type has no mods</h3>
+<p class="hint" data-i18n="mods.unsupportedDesc2">Vanilla does not load mods or plugins. Pick a modpack below, or change the type to Forge, NeoForge, Fabric (mods) or Paper (plugins) in Settings.</p>
+</div>
+
+<div id="modsSearchCard" class="card" hidden>
+<div class="card-head">
+<h3 id="modsSearchTitle" class="card-title"></h3>
+<span class="hint">Modrinth</span>
+</div>
+<form class="pl-inline" onsubmit="searchMods(event)">
+<input id="modsQuery" class="input" data-i18n-placeholder="mods.searchPh" placeholder="Search by name..." autocomplete="off">
+<button class="btn btn-start btn-small" type="submit" data-i18n="mods.search">Search</button>
+</form>
+<div id="modsHint" class="pl-hint mods-hint"></div>
+<div id="modsPickedBar" class="fm-bar" hidden>
+<span id="modsPickedText" class="fm-bar-text"></span>
+<button class="btn btn-start btn-small" onclick="addPicked()" data-i18n="mods.addPicked">Add selected</button>
+</div>
+<div id="modsResults" class="mod-list"></div>
+</div>
+
+<div id="modsBulkCard" class="card" hidden>
+<div class="card-head">
+<h3 class="card-title" data-i18n="mods.bulkTitle">Add several at once</h3>
+</div>
+<p class="hint" data-i18n="mods.bulkDesc">Paste Modrinth names or links, one per line or separated by commas.</p>
+<textarea id="modsPaste" class="input mods-paste" rows="4" spellcheck="false" data-i18n-placeholder="mods.bulkPh" placeholder="jei&#10;https://modrinth.com/mod/journeymap&#10;waystones"></textarea>
+<div class="toolbar mods-bulk-actions">
+<button class="btn btn-start btn-small" onclick="addPasted()" data-i18n="mods.bulkAdd">Add list</button>
+</div>
+</div>
+
+<div id="modsProjectsCard" class="card" hidden>
+<div class="card-head">
+<h3 class="card-title" data-i18n="mods.projectsTitle2">Added from Modrinth</h3>
+<div class="toolbar">
+<label class="un-check"><input id="modsAllProjects" type="checkbox" class="check" onchange="toggleAllProjects(this.checked)"> <span data-i18n="mods.selectAll">Select all</span></label>
+<button class="btn btn-ghost btn-small" onclick="copyModList()" data-i18n="mods.copyList">Copy list</button>
+<button id="modsRemoveBtn" class="btn btn-stop btn-small" onclick="removeSelectedMods()" disabled>Remove</button>
+</div>
+</div>
+<div id="modsProjects" class="mod-list"></div>
+</div>
+
+<div id="modpackPick" class="card">
+<div class="card-head">
+<h3 class="card-title" data-i18n="mods.modpackTitle2">Modpack</h3>
+<span class="hint">Modrinth</span>
+</div>
+<p class="hint" data-i18n="mods.modpackPickDesc">Turn this server into a ready-made modpack. Only modpacks that run on a server are shown.</p>
+<form class="pl-inline" onsubmit="searchModpacks(event)">
+<input id="modpackQuery" class="input" data-i18n-placeholder="mods.modpackSearchPh" placeholder="Search modpacks..." autocomplete="off">
+<button class="btn btn-ghost btn-small" type="submit" data-i18n="mods.search">Search</button>
+</form>
+<div id="modpackResults" class="mod-list mods-results-gap"></div>
+</div>
+
+<div class="card">
+<div class="card-head">
+<h3 id="modsFilesTitle" class="card-title"></h3>
+<div class="toolbar">
+<label class="un-check"><input id="modsAllFiles" type="checkbox" class="check" onchange="toggleAllFiles(this.checked)"> <span data-i18n="mods.selectAll">Select all</span></label>
+<button id="modsDeleteFilesBtn" class="btn btn-stop btn-small" onclick="deleteSelectedFiles()" disabled>Delete</button>
+</div>
+</div>
+<p class="hint" data-i18n="mods.filesHint">Includes jars added by hand or by Modrinth</p>
+<div id="modsFiles" class="list"></div>
+</div>
+
+</section>
+
+
+<section id="tab-files" class="tab-page" hidden>
+
+<div id="loginCard" class="card login" hidden>
+<div class="login-icon">
+<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>
+</div>
+<h3 data-i18n="login.title">Protected area</h3>
+<p class="hint" data-i18n="login.desc">Enter the password to manage files, backups and settings.</p>
+<form onsubmit="login(event)">
+<input id="password" type="password" class="input" data-i18n-placeholder="login.password" placeholder="Password" autocomplete="current-password">
+<button class="btn btn-start" type="submit" style="width:100%;justify-content:center" data-i18n="login.enter">Sign in</button>
+</form>
+<div id="loginError" class="login-error"></div>
+</div>
+
+
+<div id="filesArea" hidden>
+
+<div class="card">
+
+<div class="card-head">
+<h3 class="card-title">
+<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 8v13H3V8M1 3h22v5H1zM10 12h4"/></svg>
+<span data-i18n="bk.title">Backups</span>
+</h3>
+<div class="toolbar">
+<button id="backupBtn" class="btn btn-start btn-small" onclick="createBackup()">
+<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="width:13px;height:13px"><path d="M12 5v14M5 12h14"/></svg>
+<span data-i18n="bk.now">Back up now</span>
+</button>
+<button class="btn btn-ghost btn-small" onclick="logout()" data-i18n="login.logout">Sign out</button>
+</div>
+</div>
+
+<div id="backupInfo" class="backup-info"></div>
+<div id="backups" class="list"></div>
+
+</div>
+
+
+<div id="dropZone" class="card fm">
+
+<div class="card-head">
+<h3 class="card-title">
+<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>
+<span data-i18n="fm.title">Server files</span>
+</h3>
+<div class="toolbar">
+<button class="btn btn-ghost btn-small" onclick="newFolder()">
+<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:13px;height:13px"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2zM12 11v5M9.5 13.5h5"/></svg>
+<span data-i18n="fm.newFolder">New folder</span>
+</button>
+<button class="btn btn-start btn-small" onclick="$('uploadInput').click()">
+<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="width:13px;height:13px"><path d="M12 16V4M6 10l6-6 6 6M4 20h16"/></svg>
+<span data-i18n="fm.upload">Upload</span>
+</button>
+<input id="uploadInput" type="file" multiple hidden onchange="uploadFiles(this.files); this.value=''">
+</div>
+</div>
+
+<div class="fm-nav">
+<button id="fmUp" class="icon-btn fm-up" data-i18n-title="fm.up" title="Up one level" onclick="goUp()">
+<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
+</button>
+<div id="breadcrumb" class="breadcrumb"></div>
+<input id="fmFilter" class="input fm-filter" data-i18n-placeholder="fm.filter" placeholder="Filter files..." autocomplete="off" oninput="renderFiles()">
+</div>
+
+<div id="fmSelection" class="fm-bar" hidden>
+<span id="fmSelectionText" class="fm-bar-text"></span>
+<div class="toolbar">
+<button class="btn btn-ghost btn-small" onclick="bulkDownload()">
+<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:13px;height:13px"><path d="M12 4v12M6 10l6 6 6-6M4 20h16"/></svg>
+<span data-i18n="fm.download">Download</span>
+</button>
+<button id="fmRenameBtn" class="btn btn-ghost btn-small" onclick="bulkRename()">
+<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:13px;height:13px"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>
+<span data-i18n="fm.rename">Rename</span>
+</button>
+<button class="btn btn-ghost btn-small" onclick="bulkMove()">
+<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:13px;height:13px"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2zM10 13h6M13.5 10.5 16 13l-2.5 2.5"/></svg>
+<span data-i18n="fm.move">Move</span>
+</button>
+<button class="btn btn-stop btn-small" onclick="bulkDelete()">
+<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:13px;height:13px"><path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6M10 11v6M14 11v6"/></svg>
+<span data-i18n="fm.delete">Delete</span>
+</button>
+<button class="icon-btn" data-i18n-title="fm.clear" title="Clear selection" onclick="clearSelection()">
+<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg>
+</button>
+</div>
+</div>
+
+<div id="fmMove" class="fm-bar fm-bar-move" hidden>
+<span id="fmMoveText" class="fm-bar-text"></span>
+<div class="toolbar">
+<button class="btn btn-start btn-small" onclick="moveHere()" data-i18n="fm.moveHere">Move here</button>
+<button class="btn btn-ghost btn-small" onclick="cancelMove()" data-i18n="modal.cancel">Cancel</button>
+</div>
+</div>
+
+<div id="uploads" class="uploads"></div>
+
+<div class="list files">
+<div class="row row-head">
+<input id="fmAll" type="checkbox" class="check" data-i18n-title="fm.selectAll" title="Select all" onchange="toggleAll(this.checked)">
+<span></span>
+<button class="col-btn" onclick="setSort('name')"><span data-i18n="fm.colName">Name</span><span id="sort-name" class="sort-mark"></span></button>
+<button class="col-btn row-size" onclick="setSort('size')"><span data-i18n="fm.colSize">Size</span><span id="sort-size" class="sort-mark"></span></button>
+<button class="col-btn row-date" onclick="setSort('mtime')"><span data-i18n="fm.colDate">Modified</span><span id="sort-mtime" class="sort-mark"></span></button>
+<span></span>
+</div>
+<div id="fileList"></div>
+</div>
+
+<div class="fm-hint">
+<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V4M6 10l6-6 6 6M4 20h16"/></svg>
+<span data-i18n="fm.dropStrip">Drag files or folders anywhere on this explorer to upload them</span>
+</div>
+
+<div class="fm-overlay">
+<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V4M6 10l6-6 6 6M4 20h16"/></svg>
+<span id="fmOverlayText"></span>
+</div>
+
+</div>
+
+</div>
+
+</section>
+
+
+<section id="tab-settings" class="tab-page" hidden>
+
+<div id="settingsArea" hidden>
+
+<div id="settingsNote" class="set-note" hidden></div>
+
+<div id="settingsRestart" class="fm-bar fm-bar-move" hidden>
+<span class="fm-bar-text" data-i18n="set.restartNeeded">Some changes will apply after the server restarts.</span>
+<button class="btn btn-warn btn-small" onclick="restartFromSettings()" data-i18n="set.restartNow">Restart now</button>
+</div>
+
+<div id="settingsGroups"></div>
+
+<div class="card">
+<div class="card-head">
+<h3 class="card-title" data-i18n="cfg.title">Server and resources</h3>
+<button class="btn btn-start btn-small" onclick="saveServerConfig()" data-i18n="set.save">Save</button>
+</div>
+<div id="serverConfig"></div>
+</div>
+
+<div class="card danger-zone">
+<div class="card-head">
+<h3 class="card-title is-red" data-i18n="un.title">Danger zone</h3>
+</div>
+<div class="set-row">
+<div class="set-text">
+<div class="set-label" data-i18n="srv.deleteTitle">Delete this server</div>
+<div class="set-desc" data-i18n="srv.deleteShort">Removes the server and its container. You choose whether the world and backups are kept.</div>
+</div>
+<button class="btn btn-stop btn-small" onclick="deleteCurrentServer()" data-i18n="srv.deleteBtn">Delete server</button>
+</div>
+</div>
+
+<div id="settingsBar" class="set-bar" hidden>
+<span id="settingsBarText" class="fm-bar-text"></span>
+<div class="toolbar">
+<button class="btn btn-ghost btn-small" onclick="discardSettings()" data-i18n="set.discard">Discard</button>
+<button id="settingsSave" class="btn btn-start btn-small" onclick="saveSettings()" data-i18n="set.save">Save changes</button>
+</div>
+</div>
+
+</div>
+
+</section>
+
+
+<section id="tab-players" class="tab-page" hidden>
+
+<div id="playersArea" hidden>
+
+<div id="playersNote" class="set-note" hidden></div>
+
+<div class="card">
+
+<div class="card-head pl-head">
+<h3 class="card-title">
+<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+<span data-i18n="tab.players">Players</span>
+<span id="playersCount" class="hint"></span>
+</h3>
+<div class="toolbar pl-tools">
+<nav class="tabs pl-filters">
+<button class="tab-btn active" data-filter="all" onclick="setPlayerFilter('all')" data-i18n="pl.f.all">All</button>
+<button class="tab-btn" data-filter="online" onclick="setPlayerFilter('online')" data-i18n="pl.f.online">Online</button>
+<button class="tab-btn" data-filter="op" onclick="setPlayerFilter('op')" data-i18n="pl.f.op">Operators</button>
+<button class="tab-btn" data-filter="banned" onclick="setPlayerFilter('banned')" data-i18n="pl.f.banned">Banned</button>
+<button class="tab-btn" data-filter="whitelist" onclick="setPlayerFilter('whitelist')" data-i18n="pl.f.whitelist">Whitelist</button>
+</nav>
+<input id="playerSearch" class="input pl-search" data-i18n-placeholder="pl.search" placeholder="Search player..." autocomplete="off" oninput="renderPlayers()">
+</div>
+</div>
+
+<div id="playerList" class="pl-list"></div>
+
+</div>
+
+</div>
+
+</section>
+
+</div>
+
+
+<footer class="app-footer">
+<span class="app-footer-brand">MCServer by Derpchees</span>
+<span class="sep">·</span>
+<span>v__VERSION__</span>
+<span class="sep">·</span>
+<a href="https://github.com/Derpchees/mcserver" target="_blank" rel="noopener">GitHub</a>
+</footer>
+
+
+<div id="toast" class="toast">
+<span id="toastDot" class="dot"></span>
+<span id="toastText"></span>
+</div>
+
+
+<div id="modal" class="modal" hidden onmousedown="if(event.target===this) closeModal()">
+<div class="modal-box" id="modalBox">
+<div class="modal-head">
+<h3 id="modalTitle"></h3>
+<button class="icon-btn" onclick="closeModal()" data-i18n-title="modal.close" title="Close">
+<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg>
+</button>
+</div>
+<div id="modalBody" class="modal-body"></div>
+<div class="modal-foot">
+<span id="modalHint" class="hint"></span>
+<div class="toolbar">
+<button id="modalCancel" class="btn btn-ghost btn-small" onclick="closeModal()" data-i18n="modal.cancel">Cancel</button>
+<button id="modalOk" class="btn btn-start btn-small">OK</button>
+</div>
+</div>
+</div>
+</div>
+
+
+<script src="/app.js?v=__VERSION__"></script>
+
+</body>
+</html>

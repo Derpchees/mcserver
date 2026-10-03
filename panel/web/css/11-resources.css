@@ -1,0 +1,262 @@
+/* ---------- Resources ---------- */
+
+.resources {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 14px;
+}
+
+.sound-btn {
+    width: 34px;
+    height: 34px;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+    background: var(--surface);
+}
+
+.sound-btn svg {
+    width: 15px;
+    height: 15px;
+}
+
+.temp-state {
+    font-size: 11px;
+    font-weight: 700;
+    margin-left: 7px;
+    letter-spacing: .04em;
+    text-transform: uppercase;
+    vertical-align: middle;
+}
+
+.resource.storage {
+    grid-column: 1 / -1;
+}
+
+/* Colores por categoria (paleta categorica validada para
+   fondo oscuro; los grises son neutros, no categorias) */
+:root {
+    --part-server: #3987e5;
+    --part-backups: #d95926;
+    --part-docker: #199e70;
+    --part-swap: #c98500;
+    --part-system: #6b7570;
+    --part-reserved: repeating-linear-gradient(135deg, #4a534e 0 3px, #2c332f 3px 6px);
+}
+
+.resource {
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 16px;
+    min-width: 0;
+}
+
+.resource-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 10px;
+    margin-bottom: 12px;
+}
+
+.resource-sub {
+    color: var(--muted);
+    font-size: 12px;
+    text-align: right;
+    line-height: 1.6;
+    font-variant-numeric: tabular-nums;
+}
+
+.spark {
+    position: relative;
+    height: 70px;
+}
+
+.spark svg {
+    width: 100%;
+    height: 100%;
+    display: block;
+    overflow: visible;
+}
+
+.spark-axis {
+    display: flex;
+    justify-content: space-between;
+    color: var(--dim);
+    font-size: 11px;
+    margin-top: 6px;
+}
+
+.spark-tip {
+    position: absolute;
+    top: -8px;
+    transform: translate(-50%, -100%);
+    background: var(--bg);
+    border: 1px solid var(--border-strong);
+    border-radius: 7px;
+    padding: 5px 8px;
+    font-size: 12px;
+    white-space: nowrap;
+    pointer-events: none;
+    font-variant-numeric: tabular-nums;
+}
+
+.spark-tip b {
+    color: var(--text);
+}
+
+.spark-tip span {
+    color: var(--muted);
+}
+
+.disks {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 28px;
+    margin-top: 6px;
+}
+
+.disk-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 10px;
+    margin-bottom: 10px;
+}
+
+.disk-name {
+    font-size: 15px;
+    font-weight: 700;
+}
+
+.disk-temp {
+    margin-left: 10px;
+    padding: 2px 7px;
+    border-radius: 6px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    color: var(--muted);
+    font-size: 11.5px;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    vertical-align: 2px;
+}
+
+.disk-temp.is-amber { border-color: rgba(251, 191, 36, .35); }
+.disk-temp.is-red { border-color: rgba(248, 113, 113, .4); }
+
+.disk-total {
+    color: var(--muted);
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
+}
+
+.stack {
+    display: flex;
+    gap: 2px;
+    height: 14px;
+    border-radius: 5px;
+    overflow: hidden;
+    background: var(--bg);
+    border: 1px solid var(--border);
+}
+
+.stack span {
+    height: 100%;
+    min-width: 3px;
+    transition: width .5s, opacity .15s;
+}
+
+.stack span:first-child {
+    border-radius: 4px 0 0 4px;
+}
+
+.legend {
+    display: grid;
+    grid-template-columns: 1fr auto auto;
+    column-gap: 14px;
+    row-gap: 2px;
+    margin-top: 12px;
+    font-size: 12.5px;
+    font-variant-numeric: tabular-nums;
+}
+
+.legend-row {
+    display: contents;
+}
+
+.legend-row > * {
+    padding: 4px 0;
+    transition: opacity .15s;
+}
+
+.legend-name {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    color: var(--text);
+}
+
+.legend-size {
+    color: var(--text);
+    text-align: right;
+    font-weight: 600;
+}
+
+.legend-pct {
+    color: var(--muted);
+    text-align: right;
+    min-width: 42px;
+}
+
+.swatch {
+    width: 11px;
+    height: 11px;
+    border-radius: 3px;
+    flex: none;
+}
+
+.swatch.free {
+    background: var(--bg);
+    box-shadow: inset 0 0 0 1px var(--border-strong);
+}
+
+.legend-row.free .legend-name,
+.legend-row.free .legend-size {
+    color: var(--muted);
+}
+
+.disk.focus .stack span:not(.on),
+.disk.focus .legend-row:not(.on) > * {
+    opacity: .3;
+}
+
+.disk-row {
+    display: flex;
+    justify-content: space-between;
+    font-size: 12px;
+    color: var(--muted);
+    margin-bottom: 6px;
+    gap: 8px;
+}
+
+.disk-row b {
+    color: var(--text);
+    font-weight: 600;
+}
+
+.meter {
+    height: 8px;
+    border-radius: 99px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    overflow: hidden;
+    display: flex;
+    gap: 2px;
+}
+
+.meter span {
+    height: 100%;
+    border-radius: 99px;
+    transition: width .5s;
+}

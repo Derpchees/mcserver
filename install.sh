@@ -266,11 +266,16 @@ fi
 # ============================================================
 
 install_files() {
-    mkdir -p "$INSTALL_DIR/panel" "$INSTALL_DIR/bin" "$CONFIG_DIR"
+    mkdir -p "$INSTALL_DIR/bin" "$CONFIG_DIR"
 
-    for f in mcpanel.py mcpanel_core.py mcpanel-agent.py; do
-        install -m 755 "$SRC/panel/$f" "$INSTALL_DIR/panel/$f"
-    done
+    # La carpeta panel/ se reemplaza completa (codigo y pagina web);
+    # los datos viven en /var/lib/mcpanel, no aqui
+    rm -rf "$INSTALL_DIR/panel"
+    cp -r "$SRC/panel" "$INSTALL_DIR/panel"
+    find "$INSTALL_DIR/panel" -name __pycache__ -type d -prune -exec rm -rf {} +
+    find "$INSTALL_DIR/panel" -type d -exec chmod 755 {} +
+    find "$INSTALL_DIR/panel" -type f -exec chmod 644 {} +
+    chmod 755 "$INSTALL_DIR"/panel/*.py
 
     for f in "$SRC"/bin/*; do
         install -m 755 "$f" "$INSTALL_DIR/bin/$(basename "$f")"

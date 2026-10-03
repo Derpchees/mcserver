@@ -1,0 +1,188 @@
+/* ---------- Animaciones ---------- */
+
+@keyframes rise {
+    from { opacity: 0; transform: translateY(8px); }
+    to { opacity: 1; transform: none; }
+}
+
+@keyframes fade {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+
+@keyframes pop {
+    from { opacity: 0; transform: scale(.96) translateY(6px); }
+    to { opacity: 1; transform: none; }
+}
+
+/* Entrada escalonada al abrir la pagina o cambiar de pestana */
+.tab-page:not([hidden]) > * {
+    animation: rise .45s cubic-bezier(.2, .7, .2, 1) both;
+}
+
+.tab-page > *:nth-child(2) { animation-delay: .05s; }
+.tab-page > *:nth-child(3) { animation-delay: .10s; }
+.tab-page > *:nth-child(4) { animation-delay: .15s; }
+.tab-page > *:nth-child(5) { animation-delay: .20s; }
+.tab-page > *:nth-child(n+6) { animation-delay: .25s; }
+
+header {
+    animation: fade .5s ease both;
+}
+
+.modal:not([hidden]) {
+    animation: fade .18s ease both;
+}
+
+.modal:not([hidden]) .modal-box {
+    animation: pop .22s cubic-bezier(.2, .7, .2, 1) both;
+}
+
+.player {
+    animation: pop .25s ease both;
+}
+
+.stat,
+.resource {
+    transition: transform .18s ease, border-color .18s ease, background-color .25s ease;
+}
+
+.stat:hover {
+    transform: translateY(-2px);
+    border-color: var(--border-strong);
+}
+
+.tab-btn,
+.lang-btn,
+.icon-btn {
+    transition: background-color .15s ease, color .15s ease, box-shadow .15s ease;
+}
+
+.row {
+    transition: background-color .12s ease;
+}
+
+/* Cambio suave entre tema claro y oscuro */
+body,
+.card,
+.stat,
+.resource,
+.pill,
+.tabs,
+.lang-switch,
+.list,
+.command,
+.chat,
+.input {
+    transition: background-color .25s ease, border-color .25s ease, color .25s ease;
+}
+
+.status .dot {
+    transition: background-color .3s ease, box-shadow .3s ease;
+}
+
+.is-green.status .dot {
+    animation: glow 2.4s ease-in-out infinite;
+}
+
+@keyframes glow {
+    50% { box-shadow: 0 0 0 7px transparent; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+        animation: none !important;
+        transition: none !important;
+    }
+}
+
+/* ---------- Idioma ---------- */
+
+.lang-switch {
+    display: inline-flex;
+    padding: 3px;
+    gap: 2px;
+    border-radius: 999px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+}
+
+.lang-btn {
+    border: 0;
+    border-radius: 999px;
+    padding: 5px 9px;
+    background: transparent;
+    color: var(--muted);
+    font-family: inherit;
+    font-size: 11.5px;
+    font-weight: 700;
+    letter-spacing: .04em;
+    cursor: pointer;
+}
+
+.lang-btn:hover {
+    color: var(--text);
+}
+
+.lang-btn.active {
+    background: var(--surface-2);
+    color: var(--text);
+    box-shadow: 0 0 0 1px var(--border-strong);
+}
+
+/* ---------- Tabs ---------- */
+
+.header-right {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+
+.tabs {
+    display: inline-flex;
+    padding: 3px;
+    gap: 2px;
+    border-radius: 11px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+}
+
+.tab-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    border: 0;
+    border-radius: 8px;
+    padding: 7px 13px;
+    background: transparent;
+    color: var(--muted);
+    font-family: inherit;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.tab-btn svg {
+    width: 14px;
+    height: 14px;
+}
+
+.tab-btn:hover {
+    color: var(--text);
+}
+
+.tab-btn.active {
+    background: var(--surface-2);
+    color: var(--text);
+    box-shadow: 0 0 0 1px var(--border-strong);
+}
+
+.toolbar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+}
