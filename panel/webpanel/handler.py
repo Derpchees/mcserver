@@ -45,6 +45,7 @@ from .mods import (
     add_mods, cf_search, clear_modpack, MOD_KIND, modrinth_search, mods_state, remove_mods,
     set_modpack,
 )
+from .mod_versions import modpack_versions, project_versions, set_modpack_version, set_project_version
 from .storage_admin import data_disk_ready, storage_action, storage_get, storage_options_for
 from .webassets import web
 
@@ -285,6 +286,12 @@ class Handler(BaseHTTPRequestHandler):
 
             self.send_json(modrinth_search(kind, param("q"), srv.version, srv.type))
 
+        elif path == "/mods/versions":
+            self.send_json(project_versions(param("slug")))
+
+        elif path == "/server/modpack/versions":
+            self.send_json(modpack_versions(param("slug")))
+
         elif path == "/files/list":
             self.send_json(list_files(param("path")))
 
@@ -511,6 +518,12 @@ class Handler(BaseHTTPRequestHandler):
 
         elif path == "/server/modpack/clear":
             self.send_json(clear_modpack(user))
+
+        elif path == "/mods/version":
+            self.send_json(set_project_version(self.json_body(4096), user))
+
+        elif path == "/server/modpack/version":
+            self.send_json(set_modpack_version(self.json_body(4096), user))
 
         elif path == "/mods/apply":
             self.send_json(apply_pending(srv, user))

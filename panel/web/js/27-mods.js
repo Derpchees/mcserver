@@ -116,8 +116,9 @@ function renderMods() {
     if (isModpack) {
         const box = $("modpackCurrentRow");
         box.textContent = "";
+        const version = versionButton(d.modpack.version, d.modpack.version_name, pickModpackVersion);
         box.append(modRow({ name: d.modpack.name || d.modpack.slug, icon: d.modpack.icon,
-                            summary: t("mods.modpackActive") }, null, null));
+                            summary: t("mods.modpackActive") }, version, null));
     }
 
     // Mods o plugins
@@ -153,7 +154,8 @@ function renderModProjects() {
             if (on) modsRemove.add(item.slug); else modsRemove.delete(item.slug);
             renderRemoveBar();
         });
-        box.append(modRow(item, null, check));
+        const version = versionButton(item.version, item.version_name, function() { pickProjectVersion(item); });
+        box.append(modRow(item, version, check));
     });
 
     $("modsAllProjects").checked = d.projects.length > 0 && modsRemove.size === d.projects.length;
@@ -400,9 +402,11 @@ async function searchModpacks(event) {
 
 async function useModpack(item) {
 
+    const version = modpackVersionSelect(item.slug);
+
     const ok = await openModal({
         title: t("mods.useModpack") + ": " + item.name,
-        body: [t("mods.useModpackDesc")],
+        body: [t("mods.useModpackDesc"), version.wrap],
         okText: t("mods.useModpack"),
         okClass: "btn-warn"
     });
@@ -410,7 +414,9 @@ async function useModpack(item) {
     if (!ok) return;
 
     try {
-        const data = await postJson("/server/modpack/set", { slug: item.slug, name: item.name, icon: item.icon });
+        const data = await postJson("/server/modpack/set", {
+            slug: item.slug, name: item.name, icon: item.icon, version: version.select.value
+        });
         appliedToast(data, t("mods.modpackSet"));
         await update();
         loadMods();

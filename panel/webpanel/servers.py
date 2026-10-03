@@ -46,7 +46,7 @@ def update_server_config(srv, data, user):
     if loader is not None or modpack is not None or new_type != srv.type:
         extra = dict(srv.extra_env)
 
-        for key in list(LOADER_ENV.values()) + ["CF_SLUG", "MODRINTH_MODPACK"]:
+        for key in list(LOADER_ENV.values()) + ["CF_SLUG", "MODRINTH_MODPACK", "CF_FILE_ID", "MODRINTH_VERSION"]:
             extra.pop(key, None)
 
         value = loader if loader is not None else ""
@@ -62,6 +62,10 @@ def update_server_config(srv, data, user):
 
             extra["CF_SLUG"] = slug
 
+            # La version elegida solo sigue si el modpack es el mismo
+            if slug == srv.extra_env.get("CF_SLUG") and srv.extra_env.get("CF_FILE_ID"):
+                extra["CF_FILE_ID"] = srv.extra_env["CF_FILE_ID"]
+
         if new_type == "MODRINTH":
             slug = modpack if modpack else srv.extra_env.get("MODRINTH_MODPACK", "")
 
@@ -69,6 +73,9 @@ def update_server_config(srv, data, user):
                 raise FileError("Elige un modpack")
 
             extra["MODRINTH_MODPACK"] = slug
+
+            if slug == srv.extra_env.get("MODRINTH_MODPACK") and srv.extra_env.get("MODRINTH_VERSION"):
+                extra["MODRINTH_VERSION"] = srv.extra_env["MODRINTH_VERSION"]
 
         if extra != srv.extra_env:
             fields["extra_env"] = json.dumps(extra) if extra else ""

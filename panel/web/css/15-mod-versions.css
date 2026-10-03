@@ -1,0 +1,68 @@
+/* ---------- Version de mods, plugins y modpacks ---------- */
+
+.ver-btn {
+    flex-shrink: 0;
+    max-width: 220px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.ver-btn.pinned {
+    border-color: var(--blue);
+    color: var(--blue);
+}
+
+.ver-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    max-height: 56vh;
+    overflow-y: auto;
+}
+
+.ver-opt {
+    display: flex;
+    gap: 12px;
+    align-items: flex-start;
+    padding: 10px 14px;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    cursor: pointer;
+}
+
+.ver-opt:hover {
+    border-color: var(--border-strong);
+}
+
+.ver-opt:has(input:checked) {
+    border-color: var(--green);
+    background: var(--green-bg);
+}
+
+.ver-opt input {
+    margin-top: 3px;
+    accent-color: var(--green);
+}
+
+.ver-title {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    font-weight: 600;
+    overflow-wrap: anywhere;
+}
+
+.ver-field {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-top: 12px;
+}
+
+@media (max-width: 640px) {
+    .ver-btn {
+        max-width: 120px;
+    }
+}

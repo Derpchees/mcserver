@@ -755,7 +755,22 @@ const I18N = {
         "ev2.storage_data_missing": "The servers' disk is not connected ({msg})",
         "ev2.storage_data_back": "The servers' disk is back ({msg})",
         "ev2.storage_backup_missing": "The backups' disk is not connected. Backups are paused ({msg})",
-        "ev2.storage_backup_back": "The backups' disk is back. Backups resumed ({msg})"
+        "ev2.storage_backup_back": "The backups' disk is back. Backups resumed ({msg})",
+        "ver.button": "Version: {v}",
+        "ver.latest": "Latest",
+        "ver.latestDesc": "Always the newest compatible version",
+        "ver.pinnedHint": "Pinned to this version. Click to change it.",
+        "ver.title": "Version of {name}",
+        "ver.titleModpack": "Modpack version: {name}",
+        "ver.none": "No versions for Minecraft {v} with this server's loader.",
+        "ver.noneModpack": "No versions found.",
+        "ver.current": "In use",
+        "ver.changed": "Version changed.",
+        "ver.mc": "MC {v}",
+        "ver.beta": "Beta",
+        "ver.alpha": "Alpha",
+        "ver.pick": "Use this version",
+        "ver.modpackLabel": "Modpack version"
     },
 
     es: {
@@ -1509,13 +1524,33 @@ const I18N = {
         "ev2.storage_data_missing": "El disco de los servidores no está conectado ({msg})",
         "ev2.storage_data_back": "El disco de los servidores volvió ({msg})",
         "ev2.storage_backup_missing": "El disco de los respaldos no está conectado. Los respaldos están en pausa ({msg})",
-        "ev2.storage_backup_back": "El disco de los respaldos volvió. Los respaldos se reanudaron ({msg})"
+        "ev2.storage_backup_back": "El disco de los respaldos volvió. Los respaldos se reanudaron ({msg})",
+        "ver.button": "Versión: {v}",
+        "ver.latest": "La más reciente",
+        "ver.latestDesc": "Siempre la versión compatible más nueva",
+        "ver.pinnedHint": "Fijado en esta versión. Haz clic para cambiarla.",
+        "ver.title": "Versión de {name}",
+        "ver.titleModpack": "Versión del modpack: {name}",
+        "ver.none": "No hay versiones para Minecraft {v} con el cargador de este servidor.",
+        "ver.noneModpack": "No se encontraron versiones.",
+        "ver.current": "En uso",
+        "ver.changed": "Versión cambiada.",
+        "ver.mc": "MC {v}",
+        "ver.beta": "Beta",
+        "ver.alpha": "Alfa",
+        "ver.pick": "Usar esta versión",
+        "ver.modpackLabel": "Versión del modpack"
     }
 };
 
 
 // Mensajes que devuelve el servidor (en espanol) -> ingles
 const SERVER_MESSAGES_EN = {
+    "Versión no válida": "Invalid version",
+    "Esa versión no existe": "That version does not exist",
+    "Esa versión no es de este proyecto": "That version is not from this project",
+    "Versión cambiada": "Version changed",
+    "No se encontró el modpack en CurseForge": "The modpack was not found on CurseForge",
     "El disco de los servidores no está conectado": "The servers' disk is not connected",
     "Los servidores se están moviendo de disco. Espera a que termine.": "The servers are being moved to another disk. Wait until it is done.",
     "El disco de respaldos no está conectado": "The backups' disk is not connected",

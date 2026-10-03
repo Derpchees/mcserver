@@ -193,6 +193,26 @@ def modrinth_search(kind, query, version="", type_=""):
     return {"results": results}
 
 
+VERSION_ID = re.compile(r"^[A-Za-z0-9]{4,24}$")
+
+
+def modrinth_version_of(slug, version_id):
+    # Comprueba que la version exista y sea de ese proyecto
+    if not VERSION_ID.match(version_id or ""):
+        raise FileError("Versión no válida")
+
+    info = modrinth_get("/version/" + version_id)
+    project = modrinth_get("/project/" + urllib.parse.quote(slug))
+
+    if not info or not project:
+        raise FileError("Esa versión no existe")
+
+    if info.get("project_id") != project.get("id"):
+        raise FileError("Esa versión no es de este proyecto")
+
+    return {"id": info["id"], "version_number": str(info.get("version_number") or info.get("name") or "")[:60]}
+
+
 def parse_project_tokens(text):
     # Nombres (slugs), IDs o enlaces de Modrinth, separados por lineas,
     # comas o espacios
@@ -217,8 +237,25 @@ def mods_meta_path():
     return os.path.join(S().state_dir, "mods.json")
 
 
+def project_entries():
+    # Cada proyecto es "slug" (ultima version compatible) o "slug:version"
+    # (version fijada, por su ID de Modrinth)
+    entries = []
+
+    for item in S().extra_env.get("MODRINTH_PROJECTS", "").split(","):
+        if item:
+            slug, _, version = item.partition(":")
+            entries.append((slug, version))
+
+    return entries
+
+
 def mod_slugs():
-    return [x for x in S().extra_env.get("MODRINTH_PROJECTS", "").split(",") if x]
+    return [slug for slug, _ in project_entries()]
+
+
+def mod_pins():
+    return {slug: version for slug, version in project_entries() if version}
 
 
 def mods_state():
@@ -232,26 +269,39 @@ def mods_state():
                 files.append({"name": entry.name, "size": entry.stat().st_size})
 
     meta = read_json_file(mods_meta_path(), {})
+    pins = mod_pins()
+    modpack = None
+
+    if S().type in MODPACK_TYPES:
+        modpack = dict(meta.get("_modpack") or {
+            "slug": S().extra_env.get("MODRINTH_MODPACK") or S().extra_env.get("CF_SLUG", "")
+        })
+        modpack["provider"] = "modrinth" if S().type == "MODRINTH" else "curseforge"
+        modpack["version"] = S().extra_env.get("MODRINTH_VERSION") or S().extra_env.get("CF_FILE_ID", "")
+
+        if not modpack["version"]:
+            modpack.pop("version_name", None)
 
     return {
         "kind": kind,
         "type": S().type,
         "version": S().version,
         "folder": kind or "mods",
-        "projects": [dict(meta.get(slug, {}), slug=slug) for slug in mod_slugs()],
+        "projects": [dict(meta.get(slug, {}), slug=slug, version=pins.get(slug, "")) for slug in mod_slugs()],
         "files": files,
-        "modpack": (meta.get("_modpack") or {"slug": S().extra_env.get("MODRINTH_MODPACK") or S().extra_env.get("CF_SLUG", "")})
-                   if S().type in MODPACK_TYPES else None,
+        "modpack": modpack,
         "pending": os.path.exists(pending_path(S())),
         "running": core.container_state(S())[0] == "running"
     }
 
 
-def set_mod_slugs(slugs):
+def set_mod_slugs(slugs, pins=None):
+    # Conserva la version fijada de cada proyecto que sigue en la lista
+    pins = mod_pins() if pins is None else pins
     extra = dict(S().extra_env)
 
     if slugs:
-        extra["MODRINTH_PROJECTS"] = ",".join(slugs)
+        extra["MODRINTH_PROJECTS"] = ",".join(slug + (":" + pins[slug] if pins.get(slug) else "") for slug in slugs)
     else:
         extra.pop("MODRINTH_PROJECTS", None)
 
@@ -376,15 +426,22 @@ def set_modpack(data, user):
     if srv.type not in MODPACK_TYPES:
         meta["_prev"] = {"type": srv.type, "version": srv.version, "extra": srv.extra_env}
 
+    extra = {"MODRINTH_MODPACK": slug}
     meta["_modpack"] = {
         "slug": slug,
         "name": str(data.get("name") or slug)[:80],
         "icon": str(data.get("icon") or "")[:400]
     }
+
+    # Version elegida; sin ella se usa la mas reciente
+    if data.get("version"):
+        info = modrinth_version_of(slug, str(data["version"]))
+        extra["MODRINTH_VERSION"] = info["id"]
+        meta["_modpack"]["version_name"] = info["version_number"]
+
     write_json_file(mods_meta_path(), meta)
 
-    core.update_server(srv.id, type="MODRINTH", version="LATEST",
-                       extra_env=json.dumps({"MODRINTH_MODPACK": slug}))
+    core.update_server(srv.id, type="MODRINTH", version="LATEST", extra_env=json.dumps(extra))
     fresh = core.get_server(srv.id)
     use_server(fresh)
     applied = request_rebuild(fresh)
