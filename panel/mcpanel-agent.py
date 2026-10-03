@@ -22,6 +22,7 @@ import time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import mcpanel_core as core  # noqa: E402
+from storage import watch  # noqa: E402
 
 
 CHECK_INTERVAL = 10
@@ -150,6 +151,11 @@ class Proxy:
 
         status, _, _ = await inspect(srv)
         log(srv, "proxy.log", "PETICION RECIBIDA | Minecraft estaba: " + status)
+
+        if status != "running" and not watch.data_ready():
+            log(srv, "proxy.log", "SIN INICIO | el disco de los servidores no esta disponible")
+            writer.close()
+            return
 
         if status != "running":
             log(srv, "proxy.log", "INICIO AUTOMATICO | docker start " + srv.container)
@@ -333,6 +339,10 @@ def last_backup_day(srv):
 
 
 async def schedule_backups(servers):
+    # Sin disco de respaldos se pausan; al volver se recupera el del dia
+    if not watch.backups_ready():
+        return
+
     today = time.strftime("%Y-%m-%d")
     now_hm = time.strftime("%H:%M")
 
@@ -400,8 +410,8 @@ def check_system():
     if temp is not None and temp >= high:
         alert("alert_temp", "%.0f" % temp)
 
-    for path in {core.DATA_ROOT, core.BACKUP_ROOT}:
-        if os.path.isdir(path):
+    for path in {core.data_root(), core.backup_root()}:
+        if os.path.isdir(path) and core.path_available(path):
             usage = shutil.disk_usage(path)
             percent = (usage.total - usage.free) / usage.total * 100
 
@@ -433,6 +443,16 @@ async def main():
         try:
             servers = core.list_servers()
             await proxy.refresh(servers)
+
+            # Si el disco de los servidores se desconecto, se apagan
+            if watch.check():
+                for srv in servers:
+                    status, _, _ = await inspect(srv)
+
+                    if status == "running":
+                        set_hint(srv, "manual")
+                        log(srv, "autostop.log", "DISCO DE SERVIDORES DESCONECTADO | apagando")
+                        await run("docker", "stop", srv.container)
 
             await asyncio.gather(*(
                 monitor.check(srv) for srv in servers if srv.state == "ready"

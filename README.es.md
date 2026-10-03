@@ -29,6 +29,7 @@ Cada persona crea su cuenta desde la pantalla de entrar y, en el mismo paso, su 
 - **Jugadores**: todos los que han entrado, con su skin en 3D. Expulsar, banear, suspensión temporal, mensajes privados, modo de juego, teletransporte, operador y lista blanca.
 - **Archivos**: arrastrar y soltar en cualquier parte (también carpetas), selección múltiple, mover, renombrar, descarga en ZIP y editor de texto.
 - **Respaldos**: diarios y manuales. El mundo se pausa mientras se copia para que el respaldo quede consistente.
+- **Almacenamiento** (Administración): elige dónde viven los servidores y los respaldos, y reserva una cantidad fija de espacio para ellos, para que nada más en el disco pueda ocuparlo. Puede crear una partición en espacio libre o en un disco vacío (y otra con el resto, por ejemplo para cámaras de seguridad), montar una partición existente, crear un volumen LVM o reservar un archivo de disco. Nunca formatea, achica ni borra particiones que ya existen. Si se desconecta el disco de respaldos, los respaldos se pausan y se reanudan cuando vuelve; si falta el disco de los servidores, no se encienden.
 - **Ajustes**: `server.properties` sin editar archivos (dificultad, PvP, lista blanca...), además de los recursos y la automatización del servidor.
 - **Notificaciones del navegador**: servidor en línea, apagado o caído; respaldo terminado o fallido; y, para el administrador, temperatura alta o disco o memoria casi llenos.
 - **Borrado seguro**: borrar un servidor, una cuenta o todo el sistema pide doble confirmación.

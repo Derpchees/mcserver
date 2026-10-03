@@ -12,6 +12,7 @@ async function loadAdmin() {
 
         renderAdminSettings(settings);
         renderAdminUsers(users.users || []);
+        loadStorage();
     } catch (error) {
         showToast(t("login.noConnection"), "red");
     }

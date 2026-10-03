@@ -45,6 +45,7 @@ from .mods import (
     add_mods, cf_search, clear_modpack, MOD_KIND, modrinth_search, mods_state, remove_mods,
     set_modpack,
 )
+from .storage_admin import data_disk_ready, storage_action, storage_get, storage_options_for
 from .webassets import web
 
 
@@ -210,6 +211,15 @@ class Handler(BaseHTTPRequestHandler):
                 return self.deny(user)
 
             self.send_json({"users": admin_users()} if path == "/admin/users" else admin_get_settings())
+
+        elif path in ("/admin/storage", "/admin/storage/options"):
+            if not user or user["role"] != "admin":
+                return self.deny(user)
+
+            if path == "/admin/storage":
+                self.send_json(storage_get())
+            else:
+                self.guarded(lambda: self.send_json(storage_options_for(param("role"))))
 
         elif path == "/app.js":
             self.send_body(web("js"), "text/javascript; charset=utf-8")
@@ -408,6 +418,9 @@ class Handler(BaseHTTPRequestHandler):
         elif path == "/admin/settings":
             self.send_json(admin_save_settings(self.json_body(4096)))
 
+        elif path.startswith("/admin/storage/"):
+            self.send_json(storage_action(user, path, self.json_body(4096)))
+
         elif path == "/admin/uninstall":
             if not is_owner(user):
                 raise FileError("Solo el dueño del sistema puede desinstalar", 403)
@@ -433,6 +446,9 @@ class Handler(BaseHTTPRequestHandler):
 
             if srv.state != "ready":
                 raise FileError("El servidor todavía se está preparando")
+
+            if action in ("start", "restart") and data_disk_ready():
+                raise FileError(data_disk_ready())
 
             # Cualquiera puede encender (si el admin lo permite); apagar y
             # reiniciar solo el dueno o el admin

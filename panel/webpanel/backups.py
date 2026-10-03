@@ -8,6 +8,8 @@ import re
 import time
 import shlex
 
+import mcpanel_core as core
+
 from .common import command, FileError, INSTALL_DIR, read_lines, S
 from .stats import _stats, _stats_lock
 
@@ -78,6 +80,9 @@ def list_backups():
 def start_backup():
     if backup_running():
         raise FileError("Ya hay un respaldo en curso")
+
+    if not core.path_available(S().backup_dir):
+        raise FileError("El disco de respaldos no está conectado")
 
     S().write_env()
 

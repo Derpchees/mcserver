@@ -18,6 +18,7 @@ from .motd import set_motd
 from .containers import build_in_background
 from .mods import CF_SLUG
 from .icons import write_server_icon
+from .storage_admin import data_disk_ready, storage_alert
 
 
 SESSION_COOKIE = "mcpanel"
@@ -139,7 +140,9 @@ def auth_state(user):
         "default_server": default_server_id(),
         "my_default": personal_default(user),
         "public_access": settings["public_access"] != "no",
-        "cf_enabled": bool(settings["cf_api_key"])
+        "cf_enabled": bool(settings["cf_api_key"]),
+        # Disco desconectado o datos moviendose (solo lo ven los administradores)
+        "storage_alert": storage_alert() if user and user["role"] == "admin" else None
     }
 
 
@@ -296,6 +299,9 @@ def create_server_for(user, data):
 
     if len(core.servers_of(user["id"])) >= limits_for(user)["max_servers"]:
         raise FileError("Ya tienes el máximo de servidores permitidos")
+
+    if data_disk_ready():
+        raise FileError(data_disk_ready())
 
     type_ = fields.pop("type")
     loader = fields.pop("loader", "")

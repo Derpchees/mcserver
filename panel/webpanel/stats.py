@@ -187,8 +187,8 @@ def configured_disks():
     seen = {}
 
     srv = current_server()
-    data_path = srv.data_dir if srv else core.DATA_ROOT
-    backup_path_ = srv.backup_dir if srv else core.BACKUP_ROOT
+    data_path = srv.data_dir if srv else core.data_root()
+    backup_path_ = srv.backup_dir if srv else core.backup_root()
 
     for role, path in (("data", data_path), ("backups", backup_path_), ("system", "/")):
         if not os.path.exists(path):

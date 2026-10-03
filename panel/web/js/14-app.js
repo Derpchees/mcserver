@@ -69,5 +69,6 @@ async function refreshAuth() {
     }
 
     renderAccountArea();
+    renderStorageBanner();
     return authState;
 }

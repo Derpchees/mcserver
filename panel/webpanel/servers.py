@@ -102,7 +102,7 @@ def update_server_config(srv, data, user):
 def safe_delete_dir(path, root):
     # Solo se borran carpetas dentro de las raices de datos o respaldos
     real = os.path.realpath(path)
-    allowed = [os.path.realpath(r) for r in (core.DATA_ROOT, core.BACKUP_ROOT, root) if r]
+    allowed = [os.path.realpath(r) for r in (core.data_root(), core.backup_root(), root) if r]
 
     if real in allowed or not any(real.startswith(a + os.sep) for a in allowed):
         return False

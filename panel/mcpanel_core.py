@@ -86,6 +86,125 @@ DOCKER_NETWORK = cfg("DOCKER_NETWORK", "mcpanel-net")
 
 DB_PATH = os.path.join(STATE_ROOT, "mcpanel.db")
 
+
+# ============================================================
+# Ubicacion de servidores y respaldos
+# ============================================================
+#
+# El panel puede cambiarlas sin reinstalar: se guardan en config.env
+# (tambien lo lee uninstall.sh) y se releen cuando el archivo cambia.
+
+_live = {"mtime": None, "values": CFG}
+_live_lock = threading.Lock()
+
+
+def live_cfg(key, default=""):
+    try:
+        mtime = os.path.getmtime(CONFIG_ENV)
+    except OSError:
+        mtime = None
+
+    with _live_lock:
+        if mtime != _live["mtime"]:
+            _live["values"] = load_env(CONFIG_ENV)
+            _live["mtime"] = mtime
+
+        return _live["values"].get(key, default) or default
+
+
+def data_root():
+    return live_cfg("DATA_ROOT", DATA_ROOT)
+
+
+def backup_root():
+    return live_cfg("BACKUP_ROOT", BACKUP_ROOT)
+
+
+CONFIG_VALUE = re.compile(r"^[A-Za-z0-9 ._/:+-]*$")
+
+
+def set_config(values):
+    # Cambia o agrega claves de config.env sin tocar las demas
+    for key, value in values.items():
+        if not CONFIG_VALUE.match(str(value)):
+            raise ValueError("Valor no permitido para " + key)
+
+    try:
+        with open(CONFIG_ENV, "r", encoding="utf-8") as f:
+            lines = f.read().splitlines()
+    except FileNotFoundError:
+        lines = []
+
+    pending = dict(values)
+
+    for i, line in enumerate(lines):
+        key = line.partition("=")[0].strip()
+
+        if key in pending:
+            lines[i] = '%s="%s"' % (key, pending.pop(key))
+
+    lines += ['%s="%s"' % (key, value) for key, value in pending.items()]
+
+    tmp = CONFIG_ENV + ".tmp"
+
+    with open(tmp, "w", encoding="utf-8") as f:
+        f.write("\n".join(lines) + "\n")
+
+    try:
+        os.chmod(tmp, os.stat(CONFIG_ENV).st_mode & 0o7777)
+    except OSError:
+        pass
+
+    os.replace(tmp, CONFIG_ENV)
+
+
+# Discos que deben estar montados. Un disco aparte se monta con "nofail":
+# si falta, el equipo arranca igual y su punto de montaje queda como una
+# carpeta vacia del disco del sistema. Ahi no se debe escribir nada.
+
+def read_fstab():
+    mounts = []
+
+    try:
+        with open("/etc/fstab", "r", encoding="utf-8") as f:
+            for line in f:
+                parts = line.split()
+
+                if len(parts) >= 3 and not parts[0].startswith("#") and parts[2] != "swap":
+                    mounts.append(parts[1].replace("\\040", " "))
+    except OSError:
+        pass
+
+    return mounts
+
+
+def is_mount(path):
+    return os.path.ismount(path)
+
+
+def expected_mount(path):
+    # Punto de montaje del que depende una ruta (None si vive en el disco del sistema)
+    path = os.path.normpath(path)
+    candidates = read_fstab() + [live_cfg("BACKUP_MOUNT", BACKUP_MOUNT)]
+    best = None
+
+    for mount in candidates:
+        if not mount or mount in ("/", "none"):
+            continue
+
+        mount = os.path.normpath(mount)
+
+        if (path == mount or path.startswith(mount.rstrip(os.sep) + os.sep)) \
+                and (best is None or len(mount) > len(best)):
+            best = mount
+
+    return best
+
+
+def path_available(path):
+    mount = expected_mount(path)
+    return mount is None or is_mount(mount)
+
 SERVER_TYPES = ("FORGE", "NEOFORGE", "FABRIC", "PAPER", "VANILLA", "AUTO_CURSEFORGE", "MODRINTH")
 
 # Variable del contenedor que fija la version del cargador de cada tipo
@@ -239,7 +358,11 @@ def default_settings():
         "default_server": "",
         "public_access": "yes",
         "cf_api_key": "",
-        "owner_id": ""
+        "owner_id": "",
+        # Respaldos desactivados por el administrador mientras falta su disco
+        "backups_paused": "",
+        # Hay una tarea de almacenamiento moviendo los servidores
+        "storage_busy": ""
     }
 
 
@@ -345,8 +468,8 @@ class Server:
             setattr(self, field, row[field])
 
         # Rutas y contenedor pueden venir fijados (servidores importados)
-        self.data_dir = row["data_dir"] or os.path.join(DATA_ROOT, self.slug)
-        self.backup_dir = row["backup_dir"] or os.path.join(BACKUP_ROOT, self.slug)
+        self.data_dir = row["data_dir"] or os.path.join(data_root(), self.slug)
+        self.backup_dir = row["backup_dir"] or os.path.join(backup_root(), self.slug)
         self.container = row["container"] or ("mcs-" + self.slug)
 
         # Variables extra del contenedor (ej. FORGE_VERSION de un servidor importado)
@@ -372,6 +495,10 @@ class Server:
             os.makedirs(path, exist_ok=True)
 
         for path in (self.data_dir, self.backup_dir):
+            # Nunca en la carpeta vacia de un disco que no esta montado
+            if not path_available(path):
+                continue
+
             os.makedirs(path, exist_ok=True)
 
             try:
@@ -388,7 +515,7 @@ class Server:
             "CONTAINER": self.container,
             "DATA_DIR": self.data_dir,
             "BACKUP_DIR": self.backup_dir,
-            "BACKUP_MOUNT": BACKUP_MOUNT if self.backup_dir.startswith(BACKUP_ROOT) else "",
+            "BACKUP_MOUNT": expected_mount(self.backup_dir) or "",
             "BACKUP_KEEP_AUTO": str(self.backup_keep),
             "LOG_DIR": self.log_dir,
             "RUN_DIR": os.path.dirname(self.run_file),
@@ -566,6 +693,9 @@ def container_state(srv):
 def build_container(srv, start=False):
     # (Re)crea el contenedor con los recursos del servidor. El mundo vive
     # en la carpeta del servidor, asi que recrearlo no borra nada.
+    if not path_available(srv.data_dir):
+        raise RuntimeError("El disco de los servidores no está conectado")
+
     srv.ensure_dirs()
     srv.write_env()
 

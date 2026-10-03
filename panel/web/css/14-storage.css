@@ -1,0 +1,197 @@
+/* ---------- Almacenamiento ---------- */
+
+.sto-list {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.sto-role,
+.sto-job {
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 14px 16px;
+    background: var(--surface-2);
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.sto-head {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.sto-name {
+    font-weight: 700;
+}
+
+.sto-path {
+    font-family: var(--mono);
+    font-size: 13px;
+    color: var(--muted);
+    overflow-wrap: anywhere;
+}
+
+.sto-bar {
+    height: 8px;
+    border-radius: 99px;
+    background: var(--border);
+    overflow: hidden;
+    margin: 4px 0 2px;
+}
+
+.sto-bar span {
+    display: block;
+    height: 100%;
+    width: 0;
+    background: var(--green);
+    border-radius: inherit;
+    transition: width .4s ease;
+}
+
+.sto-bar span.full {
+    background: var(--red);
+}
+
+/* Sin porcentaje conocido: una franja que se mueve */
+.sto-bar.busy span {
+    width: 30%;
+    animation: sto-busy 1.4s ease-in-out infinite;
+}
+
+@keyframes sto-busy {
+    from { transform: translateX(-100%); }
+    to { transform: translateX(340%); }
+}
+
+.sto-note {
+    font-size: 13px;
+    color: var(--muted);
+}
+
+.sto-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 6px;
+}
+
+.sto-job-title {
+    font-weight: 700;
+}
+
+.sto-job-step {
+    color: var(--muted);
+    font-size: 14px;
+}
+
+/* Opciones del asistente */
+
+.sto-opts {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-top: 10px;
+    max-height: 52vh;
+    overflow-y: auto;
+}
+
+.sto-opt {
+    display: flex;
+    gap: 12px;
+    align-items: flex-start;
+    padding: 12px 14px;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    cursor: pointer;
+}
+
+.sto-opt:hover {
+    border-color: var(--border-strong);
+}
+
+.sto-opt:has(input:checked) {
+    border-color: var(--green);
+    background: var(--green-bg);
+}
+
+.sto-opt.is-current {
+    opacity: .55;
+    cursor: default;
+}
+
+.sto-opt input {
+    margin-top: 3px;
+    accent-color: var(--green);
+}
+
+.sto-opt-title {
+    font-weight: 600;
+}
+
+.sto-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 6px;
+}
+
+.sto-picked {
+    font-weight: 600;
+    margin-bottom: 6px;
+}
+
+.sto-field {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin: 10px 0 4px;
+}
+
+.sto-check {
+    margin-top: 10px;
+}
+
+.sto-check input {
+    accent-color: var(--green);
+}
+
+/* Aviso en todo el panel */
+
+.sto-banner {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 12px 16px;
+    margin-bottom: 14px;
+    border-radius: var(--radius);
+    border: 1px solid transparent;
+}
+
+.sto-banner.amber {
+    background: var(--amber-bg);
+    border-color: var(--amber);
+}
+
+.sto-banner.red {
+    background: var(--red-bg);
+    border-color: var(--red);
+}
+
+.sto-banner .sto-actions {
+    margin-top: 0;
+}
+
+.sto-banner-text {
+    font-weight: 600;
+}
+
+@media (max-width: 640px) {
+    .sto-banner .sto-actions .btn {
+        flex: 1;
+    }
+}

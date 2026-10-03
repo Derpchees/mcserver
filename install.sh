@@ -543,7 +543,8 @@ trap 'echo; echo "$(t failed) ${CURRENT_STEP:-?}" >&2' ERR
 step "$(t step_packages)"
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
-packages="python3 pigz curl whiptail"
+# rsync, parted y e2fsprogs: el panel mueve datos y prepara discos (Almacenamiento)
+packages="python3 pigz curl whiptail rsync parted e2fsprogs"
 command -v docker >/dev/null || packages="$packages docker.io"
 # shellcheck disable=SC2086
 apt-get install -y -qq $packages >/dev/null
