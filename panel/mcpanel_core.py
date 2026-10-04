@@ -86,6 +86,9 @@ DOCKER_NETWORK = cfg("DOCKER_NETWORK", "mcpanel-net")
 
 DB_PATH = os.path.join(STATE_ROOT, "mcpanel.db")
 
+# Respaldos automaticos que se conservan por servidor (como maximo)
+BACKUP_KEEP_MAX = 3
+
 
 # ============================================================
 # Ubicacion de servidores y respaldos
@@ -257,6 +260,8 @@ CREATE TABLE IF NOT EXISTS servers (
     backups INTEGER NOT NULL DEFAULT 1,
     backup_time TEXT NOT NULL DEFAULT '04:00',
     backup_keep INTEGER NOT NULL DEFAULT 3,
+    backup_every_hours INTEGER NOT NULL DEFAULT 24,
+    backup_every_hours_off INTEGER NOT NULL DEFAULT 24,
     state TEXT NOT NULL DEFAULT 'ready',
     state_detail TEXT NOT NULL DEFAULT '',
     data_dir TEXT NOT NULL DEFAULT '',
@@ -307,6 +312,13 @@ def db():
 
                 if "java" not in columns:
                     conn.execute("ALTER TABLE servers ADD COLUMN java TEXT NOT NULL DEFAULT ''")
+
+                # Cada cuantas horas se respalda encendido y apagado (0 = no se respalda apagado)
+                if "backup_every_hours" not in columns:
+                    conn.execute("ALTER TABLE servers ADD COLUMN backup_every_hours INTEGER NOT NULL DEFAULT 24")
+
+                if "backup_every_hours_off" not in columns:
+                    conn.execute("ALTER TABLE servers ADD COLUMN backup_every_hours_off INTEGER NOT NULL DEFAULT 24")
 
                 user_columns = {row[1] for row in conn.execute("PRAGMA table_info(users)")}
 
@@ -461,7 +473,7 @@ class Server:
 
     FIELDS = ("id", "slug", "name", "owner_id", "type", "version", "max_gb", "cpu",
               "game_port", "internal_port", "autostop", "idle_minutes", "backups",
-              "backup_time", "backup_keep", "state", "state_detail", "java", "created")
+              "backup_time", "backup_keep", "backup_every_hours", "backup_every_hours_off", "state", "state_detail", "java", "created")
 
     def __init__(self, row):
         for field in self.FIELDS:
@@ -516,7 +528,7 @@ class Server:
             "DATA_DIR": self.data_dir,
             "BACKUP_DIR": self.backup_dir,
             "BACKUP_MOUNT": expected_mount(self.backup_dir) or "",
-            "BACKUP_KEEP_AUTO": str(self.backup_keep),
+            "BACKUP_KEEP_AUTO": str(min(self.backup_keep, BACKUP_KEEP_MAX)),
             "LOG_DIR": self.log_dir,
             "RUN_DIR": os.path.dirname(self.run_file),
             "MC_UID": str(MC_UID),
@@ -549,6 +561,8 @@ class Server:
             "backups": bool(self.backups),
             "backup_time": self.backup_time,
             "backup_keep": self.backup_keep,
+            "backup_every_hours": self.backup_every_hours,
+            "backup_every_hours_off": self.backup_every_hours_off,
             "state": self.state,
             "state_detail": self.state_detail,
             "loader": self.extra_env.get(LOADER_ENV.get(self.type, ""), ""),
@@ -825,6 +839,8 @@ def import_server(argv):
     parser.add_argument("--idle-minutes", type=int, default=10)
     parser.add_argument("--backup-time", default="04:00")
     parser.add_argument("--backup-keep", type=int, default=3)
+    parser.add_argument("--backup-every-hours", type=int, default=24)
+    parser.add_argument("--backup-every-hours-off", type=int, default=24)
     parser.add_argument("--env", action="append", default=[], help="variable extra KEY=VALUE (repetible)")
     parser.add_argument("--from-container", default="",
                         help="copia del contenedor existente las variables de version (FORGE_VERSION, etc.)")
@@ -864,6 +880,8 @@ def import_server(argv):
         idle_minutes=args.idle_minutes,
         backup_time=args.backup_time,
         backup_keep=args.backup_keep,
+        backup_every_hours=args.backup_every_hours,
+        backup_every_hours_off=args.backup_every_hours_off,
         extra_env=json.dumps(extra) if extra else ""
     )
 

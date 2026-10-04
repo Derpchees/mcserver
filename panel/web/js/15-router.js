@@ -114,6 +114,7 @@ function resetServerCaches() {
     settingsSaved = null;
     settingsDraft = {};
     settingsRestart = false;
+    configDirty = false;
     currentPath = "";
     fmEntries = [];
     fmSelected.clear();

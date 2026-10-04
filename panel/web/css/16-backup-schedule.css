@@ -1,0 +1,16 @@
+/* ---------- Horario de los respaldos ---------- */
+
+.interval-row {
+    display: flex;
+    gap: 8px;
+}
+
+.interval-row input {
+    width: 90px;
+    flex-shrink: 0;
+}
+
+.interval-row select {
+    flex: 1;
+    min-width: 0;
+}

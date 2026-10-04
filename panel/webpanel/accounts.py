@@ -286,10 +286,23 @@ def clean_server_fields(data, user, partial=False):
         except (TypeError, ValueError):
             keep = 0
 
-        if not 1 <= keep <= 60:
-            raise FileError("Respaldos a conservar: entre 1 y 60")
+        if not 1 <= keep <= core.BACKUP_KEEP_MAX:
+            raise FileError("Respaldos a conservar: entre 1 y %d" % core.BACKUP_KEEP_MAX)
 
         out["backup_keep"] = keep
+
+    # Cada cuantas horas se respalda encendido y apagado (apagado: 0 = nunca)
+    for key, low in (("backup_every_hours", 1), ("backup_every_hours_off", 0)):
+        if key in data:
+            try:
+                hours = int(data[key])
+            except (TypeError, ValueError):
+                hours = -1
+
+            if not low <= hours <= 720:
+                raise FileError("El intervalo de respaldos debe ser de 1 hora a 30 días")
+
+            out[key] = hours
 
     return out
 

@@ -201,20 +201,24 @@ function settingsValid() {
 }
 
 
+// Una sola barra para toda la pestana: reglas del juego (server.properties)
+// y configuracion del servidor (22-server-config.js)
 function renderSettingsBar() {
 
     const count = Object.keys(settingsChanges()).length;
+    const pending = count > 0 || configDirty;
 
-    $("settingsBar").hidden = count === 0;
-    $("settingsBarText").textContent = tn("set.unsaved", count);
+    $("settingsBar").hidden = !pending;
+    $("settingsBarText").textContent = configDirty ? t("set.unsavedAny") : tn("set.unsaved", count);
     $("settingsSave").disabled = !settingsValid();
 
-    $("settingsRestart").hidden = !settingsRestart || count > 0;
+    $("settingsRestart").hidden = !settingsRestart || pending;
 }
 
 
 function discardSettings() {
     settingsDraft = Object.assign({}, settingsSaved);
+    renderServerConfig(true);
     renderSettings();
 }
 
@@ -223,9 +227,19 @@ async function saveSettings() {
 
     const changes = settingsChanges();
 
-    if (!Object.keys(changes).length || !settingsValid()) return;
+    if ((!Object.keys(changes).length && !configDirty) || !settingsValid()) return;
 
     $("settingsSave").disabled = true;
+
+    if (configDirty && !(await saveServerConfig())) {
+        $("settingsSave").disabled = false;
+        return;
+    }
+
+    if (!Object.keys(changes).length) {
+        renderSettingsBar();
+        return;
+    }
 
     try {
         const data = await api("/settings", {

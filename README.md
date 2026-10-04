@@ -28,7 +28,7 @@ Each person creates an account from the login page and, in the same step, their 
 - **Favorite server**: the star next to Start makes the panel open that server. It is saved in your account or, without logging in, in the browser.
 - **Players**: everyone who has joined, with a 3D skin. Kick, ban, temporary suspension, private messages, game mode, teleport, operator and whitelist.
 - **Files**: drag and drop anywhere (folders too), multi-select, move, rename, ZIP download and a text editor.
-- **Backups**: daily and manual. The world is paused while copying so the backup stays consistent.
+- **Backups**: automatic and manual. Choose how often for each server, with one frequency while it is on and another while it is off (or none, since the world does not change). Players get a chat warning a minute before and when it starts and ends. The world is paused while copying so the backup stays consistent.
 - **Storage** (Admin): choose where the servers and the backups live and set aside a fixed amount of space for them, so nothing else on the disk can take it. It can create a partition in free space or on an empty disk (and another one with the rest, for example for security cameras), mount an existing partition, create an LVM volume or reserve a disk file. Existing partitions are never formatted, shrunk or deleted. If the backups' disk is unplugged, backups pause and resume when it comes back; if the servers' disk is missing, servers do not start.
 - **Settings**: `server.properties` without editing files (difficulty, PvP, whitelist...), plus the server's resources and automation.
 - **Browser notifications**: server online, stopped or crashed; backup finished or failed; and, for the administrator, high temperature, almost-full disk or memory.

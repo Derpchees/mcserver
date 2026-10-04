@@ -133,3 +133,8 @@
         width: 100%;
     }
 }
+
+/* Un boton dentro de un campo (ej. "Ir a Mods") no ocupa todo el ancho */
+.field > .btn {
+    align-self: flex-start;
+}

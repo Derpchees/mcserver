@@ -10,6 +10,7 @@
 #
 
 CORE="/opt/mcpanel/panel/mcpanel_core.py"
+ANNOUNCE="/opt/mcpanel/panel/announce.py"
 SLUG="${1:-}"
 TYPE="${2:-manual}"
 
@@ -41,9 +42,15 @@ rcon() {
     docker exec "$CONTAINER" rcon-cli "$@" >/dev/null 2>&1
 }
 
+# Aviso en el chat del juego (solo si el servidor esta encendido)
+announce() {
+    python3 "$ANNOUNCE" "$SLUG" "$1" >/dev/null 2>&1 || true
+}
+
 fail() {
     log "ERROR | $1"
     event backup_failed error "$1"
+    [ "${announced:-0}" -eq 1 ] && announce backup_failed
     exit 1
 }
 
@@ -70,7 +77,12 @@ cleanup() {
 
 trap cleanup EXIT
 
+announced=0
+
 if [ "$(docker inspect -f '{{.State.Running}}' "$CONTAINER" 2>/dev/null)" = "true" ]; then
+    announce backup_start
+    announced=1
+
     if rcon save-off; then
         saving_off=1
         rcon save-all flush
@@ -111,6 +123,7 @@ chown "${MC_UID:-1000}:${MC_GID:-1000}" "$final" 2>/dev/null
 size=$(du -h "$final" | cut -f1)
 log "COMPLETADO | $(basename "$final") | $size | $(( $(date +%s) - start ))s"
 event backup_ok success "$size"
+[ "$announced" -eq 1 ] && announce backup_done
 
 # Solo se conservan los KEEP respaldos automaticos mas recientes
 if [ "$TYPE" = "auto" ]; then

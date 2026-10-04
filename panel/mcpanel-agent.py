@@ -22,6 +22,8 @@ import time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import mcpanel_core as core  # noqa: E402
+import announce  # noqa: E402
+import backup_schedule  # noqa: E402
 from storage import watch  # noqa: E402
 
 
@@ -330,35 +332,36 @@ class Monitor:
 # Respaldos programados
 # ============================================================
 
-def last_backup_day(srv):
-    try:
-        with open(os.path.join(srv.state_dir, "last_auto_backup"), "r") as f:
-            return f.read().strip()
-    except OSError:
-        return ""
+_warned = {}
 
 
-async def schedule_backups(servers):
-    # Sin disco de respaldos se pausan; al volver se recupera el del dia
+async def schedule_backups(servers, statuses):
+    # Sin disco de respaldos se pausan; al volver se recupera el que falto
     if not watch.backups_ready():
         return
 
-    today = time.strftime("%Y-%m-%d")
-    now_hm = time.strftime("%H:%M")
+    now = time.time()
 
     for srv in servers:
         if srv.state != "ready" or not srv.backups:
             continue
 
+        # Encendido y apagado tienen su propio intervalo
+        running = statuses.get(srv.id) == "running"
+
+        # Un minuto antes se avisa a los jugadores (una vez por turno)
+        upcoming = backup_schedule.next_run(srv, running, now)
+
+        if running and upcoming and 0 < upcoming - now <= 75 and _warned.get(srv.id) != upcoming:
+            _warned[srv.id] = upcoming
+            await asyncio.get_running_loop().run_in_executor(None, announce.announce, srv, "backup_soon")
+
         # Tambien recupera un respaldo perdido si el equipo estaba apagado
-        if now_hm < srv.backup_time or last_backup_day(srv) == today:
+        if not backup_schedule.is_due(srv, running, now):
             continue
 
         try:
-            os.makedirs(srv.state_dir, exist_ok=True)
-
-            with open(os.path.join(srv.state_dir, "last_auto_backup"), "w") as f:
-                f.write(today)
+            backup_schedule.mark_done(srv)
         except OSError:
             continue
 
@@ -460,7 +463,7 @@ async def main():
 
             if time.time() - last_backup_check >= 30:
                 last_backup_check = time.time()
-                await schedule_backups(servers)
+                await schedule_backups(servers, monitor.last_status)
 
             if time.time() - last_system >= 60:
                 last_system = time.time()

@@ -2,18 +2,20 @@
 // Formulario de servidor (registro, configuracion inicial, crear)
 // ============================================================
 
-function serverFields(prefix, values) {
+// options.resources: otro contenedor para RAM y CPU (en Ajustes van en su tarjeta)
+function serverFields(prefix, values, options) {
 
     const limits = (authState && authState.limits) || { max_ram_gb: 4, max_cpu: 1, cores: 1 };
     const v = values || {};
     const box = el("div", "form-grid");
+    const resources = (options && options.resources) || box;
 
-    const field = function(label, input, hint) {
+    const field = function(label, input, hint, target) {
         const wrap = el("label", "field");
         const labelEl = el("span", "field-label", label);
         wrap.append(labelEl, input);
         if (hint) wrap.append(el("span", "field-hint", hint));
-        box.append(wrap);
+        (target || box).append(wrap);
         return wrap;
     };
 
@@ -35,13 +37,27 @@ function serverFields(prefix, values) {
     [["PAPER", "type.paper"], ["FORGE", "type.forge"], ["NEOFORGE", "type.neoforge"], ["FABRIC", "type.fabric"], ["VANILLA", "type.vanilla"]]
         .forEach(function([value, key]) { option(type, value, t(key)); });
 
-    // Los modpacks se eligen en la pestana Mods; aqui solo se muestra el actual
-    if (v.type === "MODRINTH" || v.type === "AUTO_CURSEFORGE") {
+    // Los modpacks se eligen y se cambian en la pestana Mods; aqui solo se
+    // muestra el actual, sin poder cambiarlo
+    const isModpackServer = v.type === "MODRINTH" || v.type === "AUTO_CURSEFORGE";
+
+    if (isModpackServer) {
         option(type, v.type, t("type.modpackShort"));
+        type.disabled = true;
     }
 
     type.value = v.type || "PAPER";
-    field(t("form.type"), type);
+    const typeWrap = field(t("form.type"), type, isModpackServer ? t("cfg.modpackHint") : "");
+
+    if (isModpackServer) {
+        const goMods = el("button", "btn btn-ghost btn-small", t("cfg.goMods"));
+        goMods.type = "button";
+        goMods.onclick = function(event) {
+            event.preventDefault();
+            showTab("mods");
+        };
+        typeWrap.append(goMods);
+    }
 
     // Version de Minecraft: lista oficial del tipo elegido
     const version = el("select", "input");
@@ -52,52 +68,6 @@ function serverFields(prefix, values) {
     const loader = el("select", "input");
     loader.id = prefix + "Loader";
     const loaderWrap = field(t("form.loader"), loader);
-
-    // Modpack de CurseForge: buscar y elegir
-    const modpackBox = el("div", "modpack-box");
-    const modpackSearch = el("input", "input");
-    modpackSearch.placeholder = t("form.modpackSearch");
-    modpackSearch.autocomplete = "off";
-    const modpackSel = el("select", "input");
-    modpackSel.id = prefix + "Modpack";
-    if (v.modpack) option(modpackSel, v.modpack, v.modpack);
-    else option(modpackSel, "", t("form.modpackPick"));
-    modpackBox.append(modpackSearch, modpackSel);
-    const modpackWrap = field(t("form.modpack"), modpackBox, t("form.modpackHint"));
-    modpackWrap.hidden = true;
-
-    let modpackTimer = null;
-
-    modpackSearch.oninput = function() {
-        clearTimeout(modpackTimer);
-        modpackTimer = setTimeout(async function() {
-            const q = modpackSearch.value.trim();
-            if (q.length < 2) return;
-
-            modpackSel.textContent = "";
-            option(modpackSel, "", t("form.loading"));
-
-            try {
-                const response = await fetch("/modpacks?q=" + encodeURIComponent(q));
-                const data = await response.json();
-                modpackSel.textContent = "";
-
-                if (data.ok === false) {
-                    option(modpackSel, "", serverText(data.message));
-                    return;
-                }
-
-                if (!data.results.length) option(modpackSel, "", t("mods.noResults"));
-
-                data.results.forEach(function(item) {
-                    option(modpackSel, item.slug, item.name + " · " + t("mods.downloads", { n: compactNumber(item.downloads) }));
-                });
-            } catch (error) {
-                modpackSel.textContent = "";
-                option(modpackSel, "", t("login.noConnection"));
-            }
-        }, 450);
-    };
 
     const java = el("select", "input");
     java.id = prefix + "Java";
@@ -112,7 +82,7 @@ function serverFields(prefix, values) {
     ram.min = 1;
     ram.max = limits.max_ram_gb;
     ram.value = Math.min(v.max_gb || Math.min(4, limits.max_ram_gb), limits.max_ram_gb);
-    field(t("form.ram"), ram, t("form.ramHint", { max: limits.max_ram_gb, total: limits.system_ram_gb }));
+    field(t("form.ram"), ram, t("form.ramHint", { max: limits.max_ram_gb, total: limits.system_ram_gb }), resources);
 
     const cpu = el("input", "input");
     cpu.id = prefix + "Cpu";
@@ -122,7 +92,7 @@ function serverFields(prefix, values) {
     cpu.value = v.cpu !== undefined ? v.cpu : (limits.max_cpu < limits.cores ? limits.max_cpu : 0);
     field(t("form.cpu"), cpu, limits.max_cpu < limits.cores
         ? t("form.cpuHintMax", { max: limits.max_cpu })
-        : t("form.cpuHint", { cores: limits.cores }));
+        : t("form.cpuHint", { cores: limits.cores }), resources);
 
     let wantedVersion = v.version || "LATEST";
     let wantedLoader = v.loader || "";
@@ -178,7 +148,6 @@ function serverFields(prefix, values) {
 
         // Un modpack trae su propia version de Minecraft y cargador
         const isModpack = type.value === "AUTO_CURSEFORGE" || type.value === "MODRINTH";
-        modpackWrap.hidden = !isModpack;
         versionWrap.hidden = isModpack;
 
         if (isModpack) {
@@ -248,7 +217,6 @@ function readServerFields(prefix) {
         version: ($(prefix + "Version").value || "").trim() || "LATEST",
         loader: $(prefix + "Loader") && !$(prefix + "Loader").closest(".field").hidden ? $(prefix + "Loader").value : "",
         java: $(prefix + "Java").value,
-        modpack: ["AUTO_CURSEFORGE", "MODRINTH"].includes($(prefix + "Type").value) && $(prefix + "Modpack") ? $(prefix + "Modpack").value : undefined,
         max_gb: Number($(prefix + "Ram").value),
         cpu: Number($(prefix + "Cpu").value)
     };

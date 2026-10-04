@@ -53,3 +53,26 @@
         gap: 4px;
     }
 }
+
+/* En pantallas angostas las pestanas se deslizan en vez de ensanchar la pagina */
+@media (max-width: 640px) {
+    .header-right {
+        min-width: 0;
+        max-width: 100%;
+    }
+
+    .tabs {
+        min-width: 0;
+        max-width: 100%;
+        overflow-x: auto;
+        scrollbar-width: none;
+    }
+
+    .tabs::-webkit-scrollbar {
+        display: none;
+    }
+
+    .tabs .tab-btn {
+        flex-shrink: 0;
+    }
+}

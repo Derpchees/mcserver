@@ -8,6 +8,7 @@ import re
 import time
 import shlex
 
+import backup_schedule
 import mcpanel_core as core
 
 from .common import command, FileError, INSTALL_DIR, read_lines, S
@@ -27,17 +28,10 @@ def backup_running():
 
 
 def next_backup_ts():
-    if not S().backups:
-        return None
-
-    hour, minute = [int(x) for x in S().backup_time.split(":")]
-    now = time.localtime()
-    target = time.mktime((now.tm_year, now.tm_mon, now.tm_mday, hour, minute, 0, 0, 0, -1))
-
-    if target <= time.time():
-        target += 86400
-
-    return int(target)
+    # Con el estado actual: encendido y apagado tienen su propio intervalo
+    running = core.container_state(S())[0] == "running"
+    target = backup_schedule.next_run(S(), running)
+    return int(target) if target else None
 
 
 def list_backups():

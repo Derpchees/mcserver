@@ -31,7 +31,9 @@ async function loadBackups() {
 
         const next = el("span");
         next.append(t("bk.nextAuto"));
-        next.append(el("b", "", data.next_auto ? formatStamp(data.next_auto) : t("bk.notScheduled")));
+        // Un turno sin cubrir lo hace el agente en su siguiente revision
+        const soon = data.next_auto && data.next_auto * 1000 <= Date.now() + 60000;
+        next.append(el("b", "", !data.next_auto ? t("bk.notScheduled") : soon ? t("bk.soon") : formatStamp(data.next_auto)));
 
         const keep = el("span", "", t("bk.keep"));
 
