@@ -10,6 +10,7 @@ import threading
 
 import backup_schedule
 import mcpanel_core as core
+from push import kinds
 
 from .common import BOOT_ID, FileError, log_server_action
 from .versions import JAVA_CHOICES, LOADER_ENV, LOADER_TEXT
@@ -56,7 +57,9 @@ def user_info(user):
         return None
 
     return {"id": user["id"], "username": user["username"], "role": user["role"],
-            "owner": user["id"] == core.owner_id()}
+            "owner": user["id"] == core.owner_id(),
+            # Temas de avisos silenciados (push/kinds.py)
+            "notify_mute": sorted(kinds.muted_of(user))}
 
 
 def limits_for(user, as_admin=False):
@@ -90,6 +93,9 @@ def auth_state(user):
         "system_name": core.SYSTEM_NAME,
         "types": list(core.SERVER_TYPES),
         "my_servers": [s.id for s in core.servers_of(user["id"])] if user else [],
+        # Para el menu de la cuenta: nombre e icono de cada uno
+        "my_server_list": [{"id": s.id, "name": s.name, "slug": s.slug, "icon": s.icon}
+                           for s in core.servers_of(user["id"])] if user else [],
         "default_server": default_server_id(),
         "my_default": personal_default(user),
         "public_access": settings["public_access"] != "no",

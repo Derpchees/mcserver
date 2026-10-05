@@ -25,6 +25,10 @@ function currentTheme() {
 
 function applyTheme() {
     document.documentElement.dataset.theme = currentTheme();
+
+    // Color de la barra de la app instalada (y del navegador en el celular)
+    const bar = document.getElementById("themeColor");
+    if (bar) bar.content = currentTheme() === "light" ? "#eef2ef" : "#0a0d0b";
 }
 
 

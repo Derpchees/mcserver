@@ -57,9 +57,16 @@ async function update() {
 
     if (!currentServer) return;
 
+    // Si mientras llega la respuesta se volvio a la lista (u a otro
+    // servidor), no se pinta: antes dejaba el encabezado del servidor y sus
+    // botones de editar encima de la lista de servidores
+    const id = currentServer;
+    const stale = function() { return currentServer !== id || currentView !== "server"; };
+
     try {
 
         const response = await fetch("/api?t=" + Date.now());
+        if (stale()) return;
 
         if (response.status === 404) {
             currentServerInfo = null;
@@ -67,6 +74,7 @@ async function update() {
         }
 
         const data = await response.json();
+        if (stale()) return;
 
         const wasManage = canManageCurrent;
         currentServerInfo = data.server;
@@ -114,18 +122,8 @@ async function update() {
 
         setConnection(true);
 
-        $("docker").textContent =
-            t("docker." + data.status) || data.status;
-
-        $("health").textContent =
-            data.running
-                ? (t("health." + data.health) || data.health)
-                : "-";
-
-        $("players").textContent =
-            data.running ? data.autostop.players : "-";
-
-        $("attempts").textContent = data.attempts;
+        // Cuantos hay, junto a "En linea" (las caras de cada uno van al lado)
+        $("players").textContent = data.running && data.autostop.players ? " · " + data.autostop.players : "";
 
         $("start").disabled = data.running || (data.server && data.server.state !== "ready");
         $("stop").disabled = !data.running;
@@ -137,6 +135,7 @@ async function update() {
 
     } catch (error) {
 
+        if (stale()) return;
         $("statusText").textContent = t("status.disconnected");
         setTone($("status"), "red");
 
@@ -256,7 +255,7 @@ function updateOnline(running, data) {
         empty.className = "online-empty";
         empty.textContent =
             !running ? t("online.serverOff")
-            : data.players > 0 ? t("online.count", { n: data.players })
+            : data.players > 0 ? tn("online.count", data.players)
             : t("online.nobody");
         box.append(empty);
         return;

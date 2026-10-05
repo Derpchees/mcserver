@@ -95,6 +95,8 @@ async function saveServerConfig() {
         configDirty = false;
         showToast(data.rebuild ? t("cfg.rebuilding") : serverText(data.message), "green");
         setTimeout(update, 600);
+        // El nombre tambien sale en el menu de la cuenta
+        refreshAuth();
         return true;
     } catch (error) {
         showToast(error.message, "red");

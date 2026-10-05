@@ -21,19 +21,13 @@ function renderNotifySwitch() {
 }
 
 
-function faviconUrl() {
-    const link = document.querySelector('link[rel="icon"]');
-    return link ? link.href : undefined;
-}
-
-
 // Icono del servidor como PNG: las notificaciones del sistema no siempre
 // muestran SVG. Se guarda para no dibujarlo en cada aviso.
 const notifyIcons = {};
 
 function notifyIcon(slug) {
 
-    if (!slug) return SYSTEM_FAVICON || faviconUrl();
+    if (!slug) return "/icons/icon-192.png";
 
     const key = slug + ":" + (serverIconChoices[slug] || "");
     if (notifyIcons[key]) return notifyIcons[key];
@@ -71,7 +65,11 @@ async function pollNotifications() {
     if (!loggedIn()) return;
 
     try {
-        const data = await (await fetch("/events?since=" + notifyLast)).json();
+        const response = await fetch("/events?since=" + notifyLast);
+        // Sesion vencida: sin esto notifyLast quedaba indefinido
+        if (!response.ok) return;
+
+        const data = await response.json();
         const first = notifyLast < 0;
         notifyLast = data.last;
 
@@ -81,8 +79,14 @@ async function pollNotifications() {
             const text = eventText(event);
             const title = event.server || authState.system_name;
 
-            if (notifyEnabled() && document.visibilityState !== "visible") {
-                new Notification(title, { body: text, icon: notifyIcon(event.server_slug), tag: "mc-" + event.id });
+            if (document.visibilityState !== "visible") {
+                // Con push activo avisa el service worker (24-push.js); asi no se repite
+                if (notifyEnabled() && !pushActive) {
+                    showSystemNotification(title, {
+                        body: text, icon: notifyIcon(event.server_slug), tag: "mc-" + event.id,
+                        data: { url: event.server_id ? "/#/s/" + event.server_id : "/" }
+                    });
+                }
             } else {
                 showToast(title + ": " + text,
                     event.level === "error" ? "red" : event.level === "warning" ? "amber" : "green");
@@ -96,6 +100,7 @@ async function pollNotifications() {
 function startNotifications() {
     notifyLast = -1;
     pollNotifications();
+    startPush();
 
     if (!notifyTimer) {
         notifyTimer = setInterval(pollNotifications, 10000);

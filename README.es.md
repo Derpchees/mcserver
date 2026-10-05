@@ -33,9 +33,10 @@ Cada persona crea su cuenta desde la pantalla de entrar y, en el mismo paso, su 
 - **Actualizaciones** (Administración): muestra la versión instalada y la última en GitHub, y actualiza con un clic. Se conservan la configuración, las cuentas, los mundos y los respaldos.
 - **Acceso seguro (HTTPS)** para las notificaciones del navegador, en el instalador o con un clic en Administración. Recomendado: un **dominio gratis de DuckDNS** con certificado de Let's Encrypt, sin instalar nada en los dispositivos. Sin dominio: un **certificado propio** del servidor que cada dispositivo instala una vez. Los dos se renuevan solos y redirigen los enlaces `http://`. Ver [HTTPS y notificaciones](#https-y-notificaciones).
 - **Sesiones**: "Mantener la sesión iniciada" por 30 días; las sesiones sobreviven a los reinicios del panel, y en Mi cuenta se ven todos los dispositivos con sesión para cerrar cualquiera.
-- **Avisos**: una campana en el encabezado activa o silencia el sonido al encenderse un servidor y las notificaciones del navegador, que muestran el icono de cada servidor.
+- **Avisos**: una campana (en el menú de la cuenta, o en el encabezado sin sesión) activa o silencia el sonido al encenderse un servidor y las notificaciones del navegador, que muestran el icono de cada servidor.
 - **Ajustes**: `server.properties` sin editar archivos (dificultad, PvP, lista blanca...), además de los recursos y la automatización del servidor.
-- **Notificaciones del navegador**: servidor en línea, apagado o caído; respaldo terminado o fallido; y, para el administrador, temperatura alta o disco o memoria casi llenos.
+- **Notificaciones del navegador**: servidor en línea, apagado o caído; respaldo terminado o fallido; y, para el administrador, temperatura alta o disco o memoria casi llenos. Llegan aunque el panel esté cerrado o el celular bloqueado (Web Push, sin servicios extra: el aviso no lleva texto, el dispositivo lo pide al panel).
+- **App instalable**: en PC (Chrome, Edge) y celular (**Agregar a inicio**) el panel se instala como app con el icono de MCServer.
 - **Borrado seguro**: borrar un servidor, una cuenta o todo el sistema pide doble confirmación.
 - Inglés y español, tema claro y oscuro.
 
@@ -84,7 +85,7 @@ Para instalar sin preguntas, copia [`examples/answers.env`](examples/answers.env
 | Crear un servidor | Regístrate desde la pantalla de entrar, o **+ Crear un servidor** en el inicio |
 | Cambiar recursos, versión o automatización | Servidor → **Ajustes → Servidor y recursos** |
 | Límites y registro | **Administración** (solo administradores) |
-| Activar notificaciones | **Mi cuenta → Notificaciones del navegador** |
+| Activar notificaciones | La **campana** del menú de la cuenta (cuáles, en **Mi cuenta → Avisos**) |
 | Olvidé una contraseña | `sudo mcpanel-passwd <usuario>` (`--list` muestra los usuarios) |
 | Actualizar (conserva cuentas, servidores y mundos) | `git pull && sudo ./install.sh --update` |
 | Desinstalar | **Administración → Zona de peligro**, o `sudo /opt/mcpanel/uninstall.sh` |

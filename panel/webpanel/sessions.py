@@ -104,7 +104,8 @@ def device_name(agent):
     # Un nombre corto y reconocible a partir del User-Agent
     agent = agent or ""
     browser = next((name for pattern, name in (
-        (r"Edg/", "Edge"), (r"OPR/|Opera", "Opera"), (r"Firefox/", "Firefox"),
+        (r"Edg[A-Za-z]*/", "Edge"), (r"OPR/|Opera", "Opera"), (r"SamsungBrowser/", "Samsung Internet"),
+        (r"Firefox/|FxiOS/", "Firefox"), (r"CriOS/", "Chrome"),
         (r"Chrome/", "Chrome"), (r"Safari/", "Safari")) if re.search(pattern, agent)), "")
     system = next((name for pattern, name in (
         (r"Android", "Android"), (r"iPhone|iPad", "iOS"), (r"Windows", "Windows"),

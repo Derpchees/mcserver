@@ -508,7 +508,7 @@ function renderStorageBanner() {
         return;
     }
 
-    buttons.push([t("sto.open"), function() { go("#/admin"); }]);
+    buttons.push([t("sto.open"), function() { go("#/admin/storage"); }]);
 
     banner.className = "sto-banner " + tone;
     banner.append(el("span", "sto-banner-text", text));

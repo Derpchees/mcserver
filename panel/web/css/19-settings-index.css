@@ -1,0 +1,60 @@
+/* ---------- Indice de Ajustes del servidor ---------- */
+
+.set-index {
+    position: sticky;
+    top: 0;
+    z-index: 20;
+    display: flex;
+    gap: 6px;
+    margin-bottom: 14px;
+    padding: 6px;
+    overflow-x: auto;
+    scrollbar-width: none;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: color-mix(in srgb, var(--surface) 88%, transparent);
+    -webkit-backdrop-filter: blur(12px);
+    backdrop-filter: blur(12px);
+}
+
+.set-index::-webkit-scrollbar {
+    display: none;
+}
+
+.set-chip {
+    flex-shrink: 0;
+    border: 0;
+    border-radius: 8px;
+    padding: 6px 11px;
+    background: transparent;
+    color: var(--muted);
+    font: inherit;
+    font-size: 12.5px;
+    font-weight: 600;
+    white-space: nowrap;
+    cursor: pointer;
+    transition: background-color .15s ease, color .15s ease;
+}
+
+.set-chip:hover {
+    color: var(--text);
+}
+
+.set-chip.active {
+    background: var(--green-bg);
+    color: var(--green);
+}
+
+.set-chip.is-danger.active,
+.set-chip.is-danger:hover {
+    color: var(--red);
+}
+
+.set-chip.is-danger.active {
+    background: var(--red-bg);
+}
+
+/* Al saltar a una seccion, que no quede bajo el indice */
+.set-section {
+    scroll-margin-top: 72px;
+}

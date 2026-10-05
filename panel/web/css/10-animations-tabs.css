@@ -42,14 +42,8 @@ header {
     animation: pop .25s ease both;
 }
 
-.stat,
 .resource {
     transition: transform .18s ease, border-color .18s ease, background-color .25s ease;
-}
-
-.stat:hover {
-    transform: translateY(-2px);
-    border-color: var(--border-strong);
 }
 
 .tab-btn,
@@ -65,7 +59,6 @@ header {
 /* Cambio suave entre tema claro y oscuro */
 body,
 .card,
-.stat,
 .resource,
 .pill,
 .tabs,

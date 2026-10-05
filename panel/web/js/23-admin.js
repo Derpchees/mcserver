@@ -4,6 +4,8 @@
 
 async function loadAdmin() {
 
+    showAdminTab(adminTabFromHash());
+
     try {
         const [users, settings] = await Promise.all([
             fetch("/admin/users?t=" + Date.now()).then(function(r) { return r.json(); }),

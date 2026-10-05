@@ -1,0 +1,25 @@
+/* ---------- Pestanas de Administracion ---------- */
+
+.admin-tabs {
+    margin-bottom: 14px;
+    max-width: 100%;
+    overflow-x: auto;
+    scrollbar-width: none;
+}
+
+.admin-tabs .tab-btn {
+    position: relative;
+    flex-shrink: 0;
+}
+
+.tab-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--green);
+    box-shadow: 0 0 0 3px var(--green-bg);
+}
+
+.adm-off {
+    display: none !important;
+}

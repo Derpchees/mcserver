@@ -55,6 +55,8 @@ from .storage_admin import data_disk_ready, storage_action, storage_get, storage
 from .system_admin import system_action, system_get
 from sysadmin import localca
 from .webassets import web
+from .notify import push_events, push_key, push_subscribe, push_unsubscribe, set_notify_mute
+from . import pwa
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -284,6 +286,22 @@ class Handler(BaseHTTPRequestHandler):
         elif path == "/app.css":
             self.send_body(web("css"), "text/css; charset=utf-8")
 
+        # Panel instalable como app: manifiesto, iconos y service worker
+        elif path == "/manifest.webmanifest":
+            self.send_body(pwa.manifest(), "application/manifest+json; charset=utf-8")
+
+        elif path.startswith("/icons/") and pwa.icon(path[7:]):
+            self.send_body(pwa.icon(path[7:]), "image/png")
+
+        elif path == "/sw.js":
+            self.send_body(pwa.service_worker(), "text/javascript; charset=utf-8")
+
+        elif path == "/push/key":
+            if not user:
+                return self.deny(user)
+
+            self.guarded(lambda: self.send_json(push_key()))
+
         else:
             self.send_body(web("page"), "text/html; charset=utf-8")
 
@@ -454,8 +472,21 @@ class Handler(BaseHTTPRequestHandler):
             new_user = signup(data)
             self.send_json({"ok": True}, headers=self.login_cookie(new_user, bool(data.get("remember"))))
 
+        # El service worker no manda la sesion: se identifica con su token
+        elif path == "/push/events":
+            self.send_json(push_events(self.json_body(4096)))
+
+        elif path == "/push/unsubscribe":
+            self.send_json(push_unsubscribe(self.json_body(4096)))
+
         elif not user:
             self.deny(user)
+
+        elif path == "/push/subscribe":
+            self.send_json(push_subscribe(user, self.json_body(4096)))
+
+        elif path == "/me/notify":
+            self.send_json(set_notify_mute(user, self.json_body(4096)))
 
         elif path == "/me/password":
             result = change_password(user, self.json_body(4096))

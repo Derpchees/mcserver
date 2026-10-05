@@ -33,9 +33,10 @@ Each person creates an account from the login page and, in the same step, their 
 - **Updates** (Admin): shows the installed version and the latest on GitHub, and updates with one click. Settings, accounts, worlds and backups are kept.
 - **Secure access (HTTPS)** for browser notifications, in the installer or with one click in Admin. Recommended: a **free DuckDNS domain** with a Let's Encrypt certificate, with nothing to install on devices. Without a domain: the server's **own certificate** that each device installs once. Both renew by themselves and redirect `http://` links. See [HTTPS and notifications](#https-and-notifications).
 - **Sessions**: "Keep me signed in" for 30 days; sessions survive panel restarts, and My account lists every signed-in device to sign out any of them.
-- **Alerts**: one bell in the header turns on or mutes the start-up sound and browser notifications, which show each server's icon.
+- **Alerts**: one bell (in the account menu, or in the header before logging in) turns on or mutes the start-up sound and browser notifications, which show each server's icon.
 - **Settings**: `server.properties` without editing files (difficulty, PvP, whitelist...), plus the server's resources and automation.
-- **Browser notifications**: server online, stopped or crashed; backup finished or failed; and, for the administrator, high temperature, almost-full disk or memory.
+- **Browser notifications**: server online, stopped or crashed; backup finished or failed; and, for the administrator, high temperature, almost-full disk or memory. They arrive even with the panel closed or the phone locked (Web Push, with no extra service: the notice carries no text, the device fetches it from the panel).
+- **Installable app**: on PC (Chrome, Edge) and phones (**Add to Home Screen**) the panel installs as an app with the MCServer icon.
 - **Safe deleting**: deleting a server, an account or the whole system asks for a double confirmation.
 - English and Spanish, light and dark themes.
 
@@ -84,7 +85,7 @@ To install without questions, copy [`examples/answers.env`](examples/answers.env
 | Create a server | Sign up from the login page, or **+ Create a server** on the home page |
 | Change resources, version or automation | Server → **Settings → Server and resources** |
 | Limits and sign-up | **Administration** (administrators only) |
-| Turn on notifications | **My account → Browser notifications** |
+| Turn on notifications | The **bell** in the account menu (choose which ones in **My account → Alerts**) |
 | Forgot a password | `sudo mcpanel-passwd <user>` (`--list` shows the users) |
 | Update (keeps accounts, servers and worlds) | `git pull && sudo ./install.sh --update` |
 | Uninstall | **Administration → Danger zone**, or `sudo /opt/mcpanel/uninstall.sh` |

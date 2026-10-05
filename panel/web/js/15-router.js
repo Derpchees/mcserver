@@ -23,6 +23,10 @@ async function route() {
 
     const target = parseHash();
 
+    // Con Atras (navegador o gesto del celular) una ventana abierta, como la
+    // de editar el nombre, el icono o el mensaje, se quedaba sobre la otra vista
+    closeModal();
+
     if (authState && authState.setup && target.view !== "setup") {
         return go("#/setup");
     }

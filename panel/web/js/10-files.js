@@ -485,7 +485,7 @@ async function bulkDelete() {
 document.addEventListener("keydown", function(event) {
 
     if ($("tab-files").hidden || !filesReady || !$("modal").hidden) return;
-    if (/^(INPUT|TEXTAREA)$/.test(event.target.tagName)) return;
+    if (/^(INPUT|TEXTAREA|SELECT)$/.test(event.target.tagName)) return;
 
     if (event.key === "Delete" && fmSelected.size) {
         event.preventDefault();

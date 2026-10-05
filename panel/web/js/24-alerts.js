@@ -26,7 +26,11 @@ function setNotify(on) {
 function notifyProblem() {
     // Los navegadores solo permiten notificaciones en paginas seguras (HTTPS o localhost)
     if (!window.isSecureContext) return t("ntf.insecure");
-    if (!("Notification" in window)) return t("ntf.unsupported");
+    // En iPhone y iPad solo hay notificaciones con el panel agregado a la pantalla de inicio
+    if (!("Notification" in window)) {
+        return /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1)
+            ? t("ntf.ios") : t("ntf.unsupported");
+    }
     if (Notification.permission === "denied") return t("ntf.denied");
     if (!loggedIn()) return t("alerts.loginNeeded");
     return "";
@@ -56,6 +60,7 @@ async function toggleAlerts() {
         soundOn = false;
         try { localStorage.setItem("mc-sound", "off"); } catch (error) {}
         setNotify(false);
+        pushUnsubscribe();
         renderAlertsButton();
         showToast(t("alerts.turnedOff"), "amber");
         return;
@@ -75,9 +80,13 @@ async function toggleAlerts() {
 
         if (permission === "granted") {
             setNotify(true);
+            await registerWorker();
+            const push = await pushSubscribe();
+
             // Notificacion de prueba, con el icono del servidor abierto
-            new Notification(authState.system_name, {
-                body: t("ntf.test"), icon: notifyIcon(currentServerInfo && currentServerInfo.slug)
+            showSystemNotification(authState.system_name, {
+                body: t("ntf.test") + " " + t(push ? "ntf.pushOn" : "ntf.pushOff"),
+                icon: notifyIcon(currentServerInfo && currentServerInfo.slug)
             });
         } else {
             problem = t("ntf.denied");

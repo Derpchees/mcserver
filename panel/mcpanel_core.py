@@ -254,6 +254,7 @@ CREATE TABLE IF NOT EXISTS users (
     password TEXT NOT NULL,
     role TEXT NOT NULL DEFAULT 'user',
     default_server INTEGER,
+    notify_mute TEXT NOT NULL DEFAULT '',
     created INTEGER NOT NULL
 );
 
@@ -315,6 +316,17 @@ CREATE TABLE IF NOT EXISTS sessions (
 );
 
 CREATE INDEX IF NOT EXISTS sessions_user ON sessions(user_id);
+
+-- Dispositivos con notificaciones push (push/store.py). token = SHA-256 del
+-- token que guarda el service worker; last_event = ultimo evento entregado
+CREATE TABLE IF NOT EXISTS push_subs (
+    id INTEGER PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    endpoint TEXT NOT NULL UNIQUE,
+    token TEXT NOT NULL,
+    last_event INTEGER NOT NULL DEFAULT 0,
+    created INTEGER NOT NULL
+);
 """
 
 
@@ -356,6 +368,10 @@ def db():
 
                 if "default_server" not in user_columns:
                     conn.execute("ALTER TABLE users ADD COLUMN default_server INTEGER")
+
+                # Temas de avisos silenciados (push/kinds.py); '' = todos activos
+                if "notify_mute" not in user_columns:
+                    conn.execute("ALTER TABLE users ADD COLUMN notify_mute TEXT NOT NULL DEFAULT ''")
 
                 _db_ready = True
 

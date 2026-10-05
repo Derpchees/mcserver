@@ -63,9 +63,11 @@ function applyManageUI() {
 
     // Sin permiso solo existiria Panel: no se muestra ninguna pestana
     $("serverNav").hidden = !(manage && info && currentView === "server");
-    $("motdEdit").hidden = !manage;
-    $("nameEdit").hidden = !manage;
-    $("iconEdit").hidden = !manage;
+    // Los lapices solo dentro del servidor (nunca en la lista de servidores)
+    const editable = manage && currentView === "server";
+    $("motdEdit").hidden = !editable;
+    $("nameEdit").hidden = !editable;
+    $("iconEdit").hidden = !editable;
 
     $("stop").hidden = !manage;
     $("restart").hidden = !manage;

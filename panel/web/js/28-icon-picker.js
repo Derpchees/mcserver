@@ -64,6 +64,7 @@ async function editServerIcon() {
         await update();
         showToast(t(data.running ? "icon.changedRunning" : "icon.changed", { name: data.icon }), "green");
         loadServers();
+        refreshAuth();
     } catch (error) {
         showToast(error.message, "red");
     }

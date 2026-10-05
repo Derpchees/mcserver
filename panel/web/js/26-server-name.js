@@ -47,6 +47,7 @@ async function renameServer() {
         await update();
         renderServerTitle();
         loadServers();
+        refreshAuth();
     } catch (error) {
         showToast(error.message, "red");
     }

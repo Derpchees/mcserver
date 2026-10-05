@@ -8,6 +8,7 @@ import re
 import time
 
 import mcpanel_core as core
+from push import kinds
 
 from .common import FileError, INSTALL_DIR
 from .accounts import check_new_password
@@ -187,6 +188,9 @@ def user_events(user, since):
 
     events = core.events_since(since, ids, user["role"] == "admin")
     servers = {s.id: s for s in core.list_servers()}
+    # El cursor avanza aunque se omitan los temas silenciados
+    last = events[-1]["id"] if events else since
+    events = kinds.wanted(events, kinds.muted_of(user))
 
     for event in events:
         srv = servers.get(event["server_id"])
@@ -194,4 +198,4 @@ def user_events(user, since):
         # La pagina dibuja el icono del servidor con su slug
         event["server_slug"] = srv.slug if srv else None
 
-    return {"last": events[-1]["id"] if events else since, "events": events}
+    return {"last": last, "events": events}

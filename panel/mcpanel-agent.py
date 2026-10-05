@@ -8,6 +8,7 @@
 #   - apagado automatico cuando no hay jugadores
 #   - respaldos programados
 #   - eventos para las notificaciones (encendido, apagado, caidas, alertas)
+#   - avisos push a los dispositivos suscritos (push/sender.py)
 #
 
 import asyncio
@@ -15,8 +16,8 @@ import json
 import os
 import re
 import shutil
-import subprocess
 import sys
+import threading
 import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -26,6 +27,7 @@ import announce  # noqa: E402
 import backup_schedule  # noqa: E402
 from storage import watch  # noqa: E402
 from sysadmin import localca  # noqa: E402
+from push import sender as push_sender  # noqa: E402
 
 
 CHECK_INTERVAL = 10
@@ -500,4 +502,6 @@ async def main():
 
 
 if __name__ == "__main__":
+    # Los avisos push van en su hilo: un servicio de push lento no frena al agente
+    threading.Thread(target=push_sender.loop, daemon=True).start()
     asyncio.run(main())

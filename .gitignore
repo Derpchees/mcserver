@@ -5,3 +5,6 @@ __pycache__/
 # Archivos de respuestas con contraseñas reales
 answers*.env
 !examples/answers.env
+
+# Notas privadas para Claude (datos del servidor del dueño)
+CLAUDE.local.md

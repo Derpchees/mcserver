@@ -315,21 +315,7 @@ h1 {
     border-radius: 8px;
 }
 
-/* ---------- Stats ---------- */
-
-.grid {
-    display: grid;
-    grid-template-columns: repeat(4, 1fr);
-    gap: 14px;
-    margin-bottom: 14px;
-}
-
-.stat {
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    padding: 16px 18px;
-}
+/* ---------- Valores (recursos) ---------- */
 
 .label {
     display: flex;
@@ -353,10 +339,9 @@ h1 {
     font-variant-numeric: tabular-nums;
 }
 
-.value-sub {
-    color: var(--dim);
-    font-size: 12px;
-    margin-top: 4px;
+.online-count {
+    color: var(--muted);
+    font-variant-numeric: tabular-nums;
 }
 
 /* ---------- Autostop ---------- */

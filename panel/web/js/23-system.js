@@ -44,10 +44,13 @@ function renderUpdate(data) {
 
     const actions = el("div", "sto-actions");
 
+    // Punto en la pestana Actualizaciones cuando hay version nueva
+    $("admUpdateDot").hidden = !(data.available && data.latest);
+
     if (data.available && data.latest) {
         box.append(el("div", "sto-note is-green", t("upd.available", { v: data.latest })));
 
-        if (data.players) box.append(el("div", "sto-note is-amber", t("upd.players", { n: data.players })));
+        if (data.players) box.append(el("div", "sto-note is-amber", tn("upd.players", data.players)));
 
         if (isSystemOwner()) {
             const go = el("button", "btn btn-start btn-small", t("upd.install", { v: data.latest }));
@@ -74,7 +77,7 @@ function renderUpdate(data) {
 async function startUpdate(data) {
 
     const ok = await confirmDialog(t("upd.confirmTitle", { v: data.latest }),
-        t("upd.confirmDesc") + (data.players ? " " + t("upd.players", { n: data.players }) : ""),
+        t("upd.confirmDesc") + (data.players ? " " + tn("upd.players", data.players) : ""),
         t("upd.install", { v: data.latest }));
 
     if (!ok) return;

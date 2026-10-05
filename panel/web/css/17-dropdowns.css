@@ -1,0 +1,309 @@
+/* ---------- Menus desplegables (select) ---------- */
+
+/* Flecha propia en todos los navegadores */
+select.input {
+    -webkit-appearance: none;
+    appearance: none;
+    cursor: pointer;
+    padding-right: 38px;
+    text-overflow: ellipsis;
+    background-repeat: no-repeat;
+    background-position: right 12px center;
+    background-size: 16px 16px;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2387928c' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+    transition: border-color .15s ease, box-shadow .15s ease, background-color .25s ease;
+}
+
+:root[data-theme="light"] select.input {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%235a6660' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+}
+
+select.input:hover:not(:disabled) {
+    border-color: var(--muted);
+}
+
+select.input:focus-visible,
+select.input:focus {
+    border-color: var(--green);
+    box-shadow: 0 0 0 3px var(--green-bg);
+}
+
+select.input:disabled {
+    cursor: default;
+    opacity: .6;
+}
+
+/* Lista nativa (Firefox, Safari): al menos con los colores del tema */
+select.input option {
+    background: var(--surface);
+    color: var(--text);
+}
+
+
+/* Navegadores con <select> personalizable (Chrome y Edge 135+): la lista
+   abierta tambien sigue el estilo del panel */
+@supports (appearance: base-select) {
+
+    select.input,
+    select.input::picker(select) {
+        appearance: base-select;
+    }
+
+    select.input {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding-right: 12px;
+        background-image: none !important;
+    }
+
+    select.input::picker-icon {
+        content: "";
+        width: 16px;
+        height: 16px;
+        margin-left: auto;
+        flex: none;
+        background: var(--muted);
+        -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E") center / contain no-repeat;
+        mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E") center / contain no-repeat;
+        transition: rotate .2s ease;
+    }
+
+    select.input:open {
+        border-color: var(--green);
+        box-shadow: 0 0 0 3px var(--green-bg);
+    }
+
+    select.input:open::picker-icon {
+        rotate: 180deg;
+    }
+
+    select.input::picker(select) {
+        margin-block: 6px;
+        padding: 6px;
+        min-width: anchor-size(width);
+        max-height: min(340px, 60vh);
+        overflow-y: auto;
+        border: 1px solid var(--border-strong);
+        border-radius: 12px;
+        background: var(--surface);
+        color: var(--text);
+        box-shadow: 0 18px 40px rgba(0, 0, 0, .35);
+        opacity: 1;
+        translate: 0 0;
+        transition: opacity .14s ease, translate .14s ease, overlay .14s allow-discrete, display .14s allow-discrete;
+    }
+
+    select.input:not(:open)::picker(select) {
+        opacity: 0;
+        translate: 0 -4px;
+    }
+
+    @starting-style {
+        select.input:open::picker(select) {
+            opacity: 0;
+            translate: 0 -4px;
+        }
+    }
+
+    select.input option {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 9px 10px;
+        border-radius: 8px;
+        background: transparent;
+        color: var(--text);
+        font-size: 13px;
+        cursor: pointer;
+        outline: none;
+        transition: background-color .1s ease;
+    }
+
+    select.input option:hover,
+    select.input option:focus-visible {
+        background: var(--surface-2);
+    }
+
+    select.input option:checked {
+        background: var(--green-bg);
+        color: var(--green);
+        font-weight: 600;
+    }
+
+    select.input option:disabled {
+        color: var(--dim);
+        cursor: default;
+    }
+
+    /* La palomita del elegido va a la derecha */
+    select.input option::checkmark {
+        order: 1;
+        margin-left: auto;
+        content: "";
+        width: 14px;
+        height: 14px;
+        background: currentColor;
+        -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M20 6 9 17l-5-5'/%3E%3C/svg%3E") center / contain no-repeat;
+        mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M20 6 9 17l-5-5'/%3E%3C/svg%3E") center / contain no-repeat;
+    }
+
+    select.input option:not(:checked)::checkmark {
+        visibility: hidden;
+    }
+
+    select.input optgroup {
+        padding: 6px 4px 2px;
+        color: var(--muted);
+        font-size: 11px;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: .04em;
+    }
+}
+
+:root[data-theme="light"] select.input::picker(select) {
+    box-shadow: 0 14px 34px rgba(20, 30, 25, .14);
+}
+
+
+/* ---------- Menu de la cuenta ---------- */
+
+.account-dropdown {
+    min-width: 230px;
+    gap: 2px;
+    transform-origin: top right;
+    animation: dropdown-in .14s ease;
+}
+
+.account-head {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 10px 10px;
+    margin-bottom: 4px;
+    border-bottom: 1px solid var(--border);
+}
+
+.account-head .account-avatar {
+    width: 32px;
+    height: 32px;
+    border-radius: 9px;
+    font-size: 14px;
+}
+
+.account-head-name {
+    font-weight: 700;
+    font-size: 13px;
+}
+
+.account-head-role {
+    color: var(--muted);
+    font-size: 12px;
+}
+
+.account-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    transition: background-color .1s ease, color .1s ease;
+}
+
+.account-item svg {
+    width: 15px;
+    height: 15px;
+    color: var(--muted);
+    transition: color .1s ease;
+}
+
+.account-item:hover svg {
+    color: var(--text);
+}
+
+.account-item.is-danger {
+    color: var(--red);
+}
+
+.account-item.is-danger svg {
+    color: var(--red);
+}
+
+.account-item.is-danger:hover {
+    background: var(--red-bg);
+}
+
+.account-sep {
+    height: 1px;
+    margin: 4px 2px;
+    background: var(--border);
+}
+
+.account-btn .chev {
+    width: 13px;
+    height: 13px;
+    color: var(--muted);
+    transition: rotate .2s ease;
+}
+
+.account-btn[aria-expanded="true"] .chev {
+    rotate: 180deg;
+}
+
+:root[data-theme="light"] .account-dropdown {
+    box-shadow: 0 14px 34px rgba(20, 30, 25, .14);
+}
+
+@keyframes dropdown-in {
+    from { opacity: 0; transform: translateY(-4px) scale(.98); }
+}
+
+.account-label {
+    padding: 6px 10px 2px;
+    color: var(--muted);
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: .04em;
+}
+
+.account-server {
+    max-width: 280px;
+}
+
+.account-server span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.account-srv-icon {
+    width: 18px;
+    height: 18px;
+    border-radius: 4px;
+    image-rendering: pixelated;
+    flex: none;
+}
+
+.account-server.is-current {
+    background: var(--surface-2);
+    font-weight: 600;
+}
+
+/* Idioma, tema y avisos dentro del menu */
+.account-prefs {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding-bottom: 4px;
+}
+
+.prefs-box {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.prefs-box.in-menu {
+    padding: 0 8px;
+}
+

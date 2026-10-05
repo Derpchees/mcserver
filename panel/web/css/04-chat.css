@@ -142,7 +142,8 @@
 
 /* ---------- Paneles chat / consola ---------- */
 
-.pane-tabs {
+/* .tabs delante: .tabs (mas abajo) fija display */
+.tabs.pane-tabs {
     display: none;
     margin-bottom: 14px;
 }
@@ -168,7 +169,7 @@
 
 @media (max-width: 899px) {
 
-    .pane-tabs {
+    .tabs.pane-tabs {
         display: inline-flex;
     }
 
