@@ -30,7 +30,7 @@ function serverFields(prefix, values, options) {
     name.maxLength = 40;
     name.value = v.name || "";
     name.placeholder = t("form.serverNamePh");
-    field(t("form.serverName"), name);
+    field(t("form.serverName"), name, prefix === "cfg" ? t("srv.nameHint") : "");
 
     const type = el("select", "input");
     type.id = prefix + "Type";

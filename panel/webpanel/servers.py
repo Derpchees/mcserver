@@ -97,7 +97,8 @@ def update_server_config(srv, data, user):
     log_server_action(fresh, "configuración cambiada por %s: %s" % (user["username"], ", ".join(sorted(changed))))
 
     # Recursos, tipo o version: hay que recrear el contenedor
-    rebuild = bool({"type", "version", "max_gb", "cpu", "autostop", "name", "extra_env", "java"} & set(changed))
+    # El nombre solo se usa en el panel: cambiarlo no recrea el contenedor
+    rebuild = bool({"type", "version", "max_gb", "cpu", "autostop", "extra_env", "java"} & set(changed))
 
     if rebuild:
         running = core.container_state(fresh)[0] == "running"

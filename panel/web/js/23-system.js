@@ -89,22 +89,25 @@ async function startUpdate(data) {
     box.textContent = "";
     box.append(el("div", "sto-note is-amber", t("upd.running")));
 
-    // El panel se reinicia durante la actualizacion: se espera a que vuelva
-    let wentDown = false;
+    // El panel se reinicia durante la actualizacion. Cada arranque tiene su
+    // identificador: en cuanto cambia, el panel ya es la version nueva. (Un
+    // reinicio dura menos de un segundo y no siempre se alcanza a ver caido.)
+    const before = authState && authState.boot;
     const started = Date.now();
 
     clearInterval(updateTimer);
     updateTimer = setInterval(async function() {
         try {
-            const response = await fetch("/auth/state?t=" + Date.now(), { cache: "no-store" });
-            if (response.ok && (wentDown || Date.now() - started > 60000)) {
+            const state = await (await fetch("/auth/state?t=" + Date.now(), { cache: "no-store" })).json();
+
+            if ((before && state.boot && state.boot !== before) || Date.now() - started > 120000) {
                 clearInterval(updateTimer);
                 location.reload();
             }
         } catch (error) {
-            wentDown = true;
+            // Reiniciando: se vuelve a intentar
         }
-    }, 3000);
+    }, 1500);
 }
 
 

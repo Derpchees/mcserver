@@ -11,7 +11,7 @@ import threading
 import backup_schedule
 import mcpanel_core as core
 
-from .common import FileError, log_server_action
+from .common import BOOT_ID, FileError, log_server_action
 from .versions import JAVA_CHOICES, LOADER_ENV, LOADER_TEXT
 from .access import personal_default
 from .motd import set_motd
@@ -95,7 +95,8 @@ def auth_state(user):
         "public_access": settings["public_access"] != "no",
         "cf_enabled": bool(settings["cf_api_key"]),
         # Disco desconectado o datos moviendose (solo lo ven los administradores)
-        "storage_alert": storage_alert() if user and user["role"] == "admin" else None
+        "storage_alert": storage_alert() if user and user["role"] == "admin" else None,
+        "boot": BOOT_ID
     }
 
 

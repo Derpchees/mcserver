@@ -64,6 +64,7 @@ function applyManageUI() {
     // Sin permiso solo existiria Panel: no se muestra ninguna pestana
     $("serverNav").hidden = !(manage && info && currentView === "server");
     $("motdEdit").hidden = !manage;
+    $("srvRename").hidden = !manage;
 
     $("stop").hidden = !manage;
     $("restart").hidden = !manage;

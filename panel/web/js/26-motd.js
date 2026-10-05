@@ -77,6 +77,7 @@ function renderServerHeader() {
     if (!info || currentView !== "server") return;
 
     setBrandIcon(info.slug);
+    renderServerTitle();
 
     const plain = plainMotd(currentMotd);
 

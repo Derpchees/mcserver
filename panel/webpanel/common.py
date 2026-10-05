@@ -15,6 +15,10 @@ import mcpanel_core as core
 INSTALL_DIR = core.INSTALL_DIR
 DEFAULT_LANG = core.DEFAULT_LANG
 
+# Cambia en cada arranque del panel: la pagina lo usa para saber que el
+# panel ya se reinicio (por ejemplo despues de actualizarse)
+BOOT_ID = "%d-%d" % (time.time() * 1000, os.getpid())
+
 
 # Servidor de la peticion actual. El manejador lo fija con use_server()
 # y todas las funciones de un servidor lo leen con S().

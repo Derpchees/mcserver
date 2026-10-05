@@ -410,3 +410,25 @@ h1 {
     background: var(--green);
     transition: width .25s linear, background .3s;
 }
+
+/* Nombre del servidor en la tarjeta principal (con lapiz para renombrar) */
+.srv-title {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 8px;
+    min-width: 0;
+}
+
+.srv-title-name {
+    margin: 0;
+    font-size: 20px;
+    font-weight: 800;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.srv-title-name:empty {
+    display: none;
+}
