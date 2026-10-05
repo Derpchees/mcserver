@@ -83,6 +83,7 @@ function showView(name) {
     $("appSubtitle").classList.remove("motd-inline");
     $("motdEdit").hidden = true;
     setBrandIcon(null);
+    renderServerTitle();
     $("appSubtitle").textContent = t("nav." + (name === "signup" || name === "setup" ? name : name));
     document.title = authState ? authState.system_name : document.title;
 

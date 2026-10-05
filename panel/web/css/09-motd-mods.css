@@ -212,13 +212,64 @@
 
 .header-left {
     display: flex;
-    align-items: flex-end;
-    gap: 6px;
+    align-items: center;
+    gap: 14px;
     min-width: 0;
 }
 
-.header-left .motd-edit {
-    margin-bottom: 1px;
+/* Icono con su boton para cambiarlo en la esquina */
+.brand-logo-wrap {
+    position: relative;
+    flex-shrink: 0;
+}
+
+.logo-edit {
+    position: absolute;
+    right: -7px;
+    bottom: -7px;
+    width: 22px;
+    height: 22px;
+    display: grid;
+    place-items: center;
+    padding: 0;
+    border-radius: 999px;
+    border: 1px solid var(--border-strong);
+    background: var(--surface);
+    color: var(--muted);
+    cursor: pointer;
+}
+
+.logo-edit:hover {
+    color: var(--text);
+}
+
+.logo-edit svg {
+    width: 12px;
+    height: 12px;
+}
+
+.logo-edit[hidden] {
+    display: none;
+}
+
+/* Nombre y mensaje, cada uno con su lapiz */
+.brand-text {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+}
+
+.brand-line {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    min-width: 0;
+}
+
+.brand-line h1 {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 .logo.logo-server {
@@ -255,4 +306,51 @@
 .chat-avatar.guest {
     background: var(--surface-2);
     color: var(--muted);
+}
+
+/* Selector de icono del servidor */
+.icon-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+    gap: 8px;
+    margin: 10px 0;
+    max-height: 52vh;
+    overflow-y: auto;
+}
+
+.icon-choice {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    padding: 10px 6px;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: var(--surface-2);
+    color: var(--muted);
+    font-family: inherit;
+    font-size: 11px;
+    cursor: pointer;
+}
+
+.icon-choice img {
+    width: 40px;
+    height: 40px;
+    border-radius: 8px;
+    image-rendering: pixelated;
+}
+
+.icon-choice:hover {
+    border-color: var(--border-strong);
+    color: var(--text);
+}
+
+.icon-choice.current {
+    border-color: var(--border-strong);
+}
+
+.icon-choice.picked {
+    border-color: var(--green);
+    background: var(--green-bg);
+    color: var(--text);
 }

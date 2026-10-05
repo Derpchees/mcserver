@@ -55,6 +55,7 @@ function renderServers(servers) {
 
         const top = el("div", "srv-top");
         const logo = el("div", "logo srv-logo logo-server");
+        rememberServerIcon(server.slug, server.icon);
         logo.append(serverIconEl(server.slug, "logo-img"));
         const titles = el("div", "srv-titles");
         const nameEl = el("div", "srv-name", server.name);

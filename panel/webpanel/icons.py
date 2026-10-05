@@ -4,8 +4,11 @@
 
 import json
 import os
+import random
 
-from .common import give_to_server
+import mcpanel_core as core
+
+from .common import FileError, give_to_server, log_server_action
 
 
 # Bloques reales de Minecraft en el estilo del logo: bandas horizontales
@@ -25,14 +28,21 @@ def _icon_hash(text):
     return h
 
 
-def server_icon_block(slug):
+BLOCK_NAMES = [b["name"] for b in ICON_BLOCKS]
+
+
+def server_icon_block(slug, choice=""):
+    # El bloque elegido por el dueno o, si no eligio, el que toca por el nombre
+    if choice in BLOCK_NAMES:
+        return ICON_BLOCKS[BLOCK_NAMES.index(choice)]
+
     return ICON_BLOCKS[_icon_hash(slug or "server") % len(ICON_BLOCKS)]
 
 
-def server_icon_pixels(slug):
+def server_icon_pixels(slug, choice=""):
     pixels = []
 
-    for rows, colors in server_icon_block(slug)["bands"]:
+    for rows, colors in server_icon_block(slug, choice)["bands"]:
         rgb = [tuple(int(c[i:i + 2], 16) for i in (1, 3, 5)) for c in colors]
 
         for _ in range(rows):
@@ -42,11 +52,11 @@ def server_icon_pixels(slug):
     return pixels
 
 
-def server_icon_png(slug, size=64):
+def server_icon_png(slug, size=64, choice=""):
     import struct
     import zlib
 
-    pixels = server_icon_pixels(slug)
+    pixels = server_icon_pixels(slug, choice)
     rows = []
 
     for y in range(size):
@@ -77,9 +87,30 @@ def write_server_icon(srv, overwrite=False):
     srv.ensure_dirs()
 
     with open(path + ".tmp", "wb") as f:
-        f.write(server_icon_png(srv.slug))
+        f.write(server_icon_png(srv.slug, choice=srv.icon))
 
     os.chmod(path + ".tmp", 0o664)
     give_to_server(path + ".tmp")
     os.replace(path + ".tmp", path)
     return True
+
+
+def set_server_icon(srv, data, user):
+    # Cambia el icono: un bloque de la lista o "random" (uno distinto al actual).
+    # Se escribe server-icon.png: Minecraft lo muestra al volver a arrancar.
+    choice = str(data.get("block", ""))
+    current = server_icon_block(srv.slug, srv.icon)["name"]
+
+    if choice == "random":
+        choice = random.choice([name for name in BLOCK_NAMES if name != current])
+
+    if choice not in BLOCK_NAMES:
+        raise FileError("Ese icono no existe")
+
+    core.update_server(srv.id, icon=choice)
+    fresh = core.get_server(srv.id)
+    write_server_icon(fresh, overwrite=True)
+    log_server_action(fresh, "%s cambió el icono a %s" % (user["username"], choice))
+
+    return {"ok": True, "message": "Icono cambiado", "icon": choice,
+            "running": core.container_state(fresh)[0] == "running"}

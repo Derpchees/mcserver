@@ -44,6 +44,7 @@ from .admin import (
 from .versions import available_versions
 from .access import is_owner, public_ok, set_personal_default
 from .motd import set_motd
+from .icons import set_server_icon
 from .containers import apply_pending
 from .mods import (
     add_mods, cf_search, clear_modpack, MOD_KIND, modrinth_search, mods_state, remove_mods,
@@ -578,6 +579,9 @@ class Handler(BaseHTTPRequestHandler):
 
         elif path == "/server/motd":
             self.send_json(set_motd(srv, self.json_body(4096).get("motd", ""), user))
+
+        elif path == "/server/icon":
+            self.send_json(set_server_icon(srv, self.json_body(4096), user))
 
         elif path == "/mods/add":
             self.send_json(add_mods(self.json_body(), user))

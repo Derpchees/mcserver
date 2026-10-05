@@ -53,7 +53,7 @@ class PanelServer(ThreadingHTTPServer):
             except OSError:
                 return
 
-            if first == b"":
+            if first == b"\x16":  # saludo TLS (ClientHello)
                 try:
                     secure = self.tls.wrap_socket(request, server_side=True)
                 except (ssl.SSLError, OSError):

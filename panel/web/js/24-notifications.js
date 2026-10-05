@@ -34,7 +34,9 @@ const notifyIcons = {};
 function notifyIcon(slug) {
 
     if (!slug) return SYSTEM_FAVICON || faviconUrl();
-    if (notifyIcons[slug]) return notifyIcons[slug];
+
+    const key = slug + ":" + (serverIconChoices[slug] || "");
+    if (notifyIcons[key]) return notifyIcons[key];
 
     try {
         const size = 96;
@@ -48,12 +50,12 @@ function notifyIcon(slug) {
             ctx.fillRect((i % ICON_GRID) * cell, Math.floor(i / ICON_GRID) * cell, cell, cell);
         });
 
-        notifyIcons[slug] = canvas.toDataURL("image/png");
+        notifyIcons[key] = canvas.toDataURL("image/png");
     } catch (error) {
-        notifyIcons[slug] = serverIconUrl(slug);
+        notifyIcons[key] = serverIconUrl(slug);
     }
 
-    return notifyIcons[slug];
+    return notifyIcons[key];
 }
 
 

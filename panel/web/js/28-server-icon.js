@@ -18,17 +18,33 @@ function iconHash(text) {
 }
 
 
-// Bloque real de Minecraft para cada servidor (mismo calculo que el servidor)
+// Bloque elegido por el dueno de cada servidor (slug -> nombre del bloque).
+// Se llena con la informacion de los servidores; sin eleccion, toca uno por
+// el nombre interno (mismo calculo que el servidor, icons.py).
+const serverIconChoices = {};
+
+function rememberServerIcon(slug, choice) {
+    if (slug) serverIconChoices[slug] = choice || "";
+}
+
+
 function serverIconBlock(slug) {
-    return ICON_BLOCKS[iconHash(slug || "server") % ICON_BLOCKS.length];
+    const choice = serverIconChoices[slug];
+    const chosen = choice && ICON_BLOCKS.find(function(b) { return b.name === choice; });
+    return chosen || ICON_BLOCKS[iconHash(slug || "server") % ICON_BLOCKS.length];
 }
 
 
 function serverIconPixels(slug) {
+    return blockPixels(serverIconBlock(slug));
+}
+
+
+function blockPixels(block) {
 
     const pixels = [];
 
-    serverIconBlock(slug).bands.forEach(function([rows, colors]) {
+    block.bands.forEach(function([rows, colors]) {
         const rgb = colors.map(function(c) {
             return [1, 3, 5].map(function(i) { return parseInt(c.slice(i, i + 2), 16); });
         });
@@ -45,8 +61,12 @@ function serverIconPixels(slug) {
 
 
 function serverIconSvg(slug) {
+    return pixelsSvg(serverIconPixels(slug));
+}
 
-    const pixels = serverIconPixels(slug);
+
+function pixelsSvg(pixels) {
+
     let rects = "";
 
     pixels.forEach(function(rgb, i) {
@@ -59,6 +79,11 @@ function serverIconSvg(slug) {
 
 function serverIconUrl(slug) {
     return "data:image/svg+xml," + encodeURIComponent(serverIconSvg(slug));
+}
+
+
+function blockIconUrl(block) {
+    return "data:image/svg+xml," + encodeURIComponent(pixelsSvg(blockPixels(block)));
 }
 
 
@@ -79,7 +104,7 @@ function setBrandIcon(slug) {
 
     const logo = document.querySelector(".brand .logo");
     const favicon = document.querySelector('link[rel="icon"]');
-    const key = slug || "";
+    const key = slug ? slug + ":" + (serverIconChoices[slug] || "") : "";
 
     if (logo.dataset.icon === key) return;
     logo.dataset.icon = key;

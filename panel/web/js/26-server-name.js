@@ -1,5 +1,5 @@
 // ============================================================
-// Nombre del servidor (tarjeta principal)
+// Nombre del servidor (encabezado, junto al icono y el mensaje)
 // ============================================================
 //
 // Es el nombre en este panel: lista de servidores, encabezado de la pestana
@@ -8,9 +8,13 @@
 // controla ahi es el mensaje (MOTD) y el icono. Cambiarlo no reinicia nada.
 
 
+// Dentro de un servidor el encabezado muestra su nombre; fuera, el del sistema
 function renderServerTitle() {
     const info = currentServerInfo;
-    $("srvTitle").textContent = info ? info.name : "";
+    const inServer = info && currentView === "server";
+    $("brandTitle").textContent = inServer ? info.name : (authState ? authState.system_name : $("brandTitle").textContent);
+    $("nameEdit").hidden = !(inServer && canManageCurrent);
+    $("iconEdit").hidden = !(inServer && canManageCurrent);
 }
 
 

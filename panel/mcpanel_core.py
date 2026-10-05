@@ -275,6 +275,7 @@ CREATE TABLE IF NOT EXISTS servers (
     backup_keep INTEGER NOT NULL DEFAULT 3,
     backup_every_hours INTEGER NOT NULL DEFAULT 24,
     backup_every_hours_off INTEGER NOT NULL DEFAULT 24,
+    icon TEXT NOT NULL DEFAULT '',
     state TEXT NOT NULL DEFAULT 'ready',
     state_detail TEXT NOT NULL DEFAULT '',
     data_dir TEXT NOT NULL DEFAULT '',
@@ -346,6 +347,10 @@ def db():
 
                 if "backup_every_hours_off" not in columns:
                     conn.execute("ALTER TABLE servers ADD COLUMN backup_every_hours_off INTEGER NOT NULL DEFAULT 24")
+
+                # Bloque elegido para el icono ('' = el que toca por el nombre)
+                if "icon" not in columns:
+                    conn.execute("ALTER TABLE servers ADD COLUMN icon TEXT NOT NULL DEFAULT ''")
 
                 user_columns = {row[1] for row in conn.execute("PRAGMA table_info(users)")}
 
@@ -500,7 +505,7 @@ class Server:
 
     FIELDS = ("id", "slug", "name", "owner_id", "type", "version", "max_gb", "cpu",
               "game_port", "internal_port", "autostop", "idle_minutes", "backups",
-              "backup_time", "backup_keep", "backup_every_hours", "backup_every_hours_off", "state", "state_detail", "java", "created")
+              "backup_time", "backup_keep", "backup_every_hours", "backup_every_hours_off", "icon", "state", "state_detail", "java", "created")
 
     def __init__(self, row):
         for field in self.FIELDS:
@@ -590,6 +595,7 @@ class Server:
             "backup_keep": self.backup_keep,
             "backup_every_hours": self.backup_every_hours,
             "backup_every_hours_off": self.backup_every_hours_off,
+            "icon": self.icon,
             "state": self.state,
             "state_detail": self.state_detail,
             "loader": self.extra_env.get(LOADER_ENV.get(self.type, ""), ""),
