@@ -15,7 +15,7 @@
 
 set -euo pipefail
 
-VERSION="2.3.2"
+VERSION="2.3.3"
 REPO="Derpchees/mcserver"
 INSTALL_DIR="/opt/mcpanel"
 CONFIG_DIR="/etc/mcpanel"

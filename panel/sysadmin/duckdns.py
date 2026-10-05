@@ -133,10 +133,14 @@ def enable_steps(subdomain, token, game_address=False):
     run(ACME, "--issue", "--dns", "dns_duckdns", "-d", domain, "--server", "letsencrypt",
         env={"DuckDNS_Token": token, "HOME": "/root"}, ok=(0, 2))
 
+    # acme.sh corre el reloadcmd al instalar (y en cada renovacion). Si
+    # reiniciara el panel al instante, cortaria esta misma tarea antes de
+    # guardar la configuracion: el reinicio se programa unos segundos despues.
     tasks.step("https", "install_cert")
     os.makedirs(TLS_DIR, mode=0o700, exist_ok=True)
     run(ACME, "--install-cert", "-d", domain, "--key-file", KEY, "--fullchain-file", CERT,
-        "--reloadcmd", "systemctl restart mcpanel-web", env={"HOME": "/root"})
+        "--reloadcmd", "systemd-run --on-active=5 --collect --quiet systemctl restart mcpanel-web",
+        env={"HOME": "/root"})
     os.chmod(KEY, 0o600)
 
     core.set_config({"TLS_MODE": "duckdns", "TLS_CERT": CERT, "TLS_KEY": KEY, "PANEL_DOMAIN": domain})

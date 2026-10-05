@@ -118,6 +118,10 @@ async function startUpdate(data) {
 
 let httpsTimer = null;
 
+// Direccion segura que devolvio el panel al empezar a activar el dominio:
+// si el panel se reinicia y esta pagina (http) pierde la conexion, se va ahi
+let httpsTarget = null;
+
 
 async function loadHttps() {
 
@@ -131,7 +135,10 @@ async function loadHttps() {
             httpsTimer = setTimeout(loadHttps, 2000);
         }
     } catch (error) {
-        // Durante el reinicio del panel la pagina deja de responder un momento
+        // El panel se reinicio con HTTPS: esta pagina ya no lo alcanza por http
+        if (httpsTarget) {
+            setTimeout(function() { location.href = httpsTarget + location.hash; }, 3000);
+        }
     }
 }
 
@@ -221,9 +228,10 @@ function duckdnsForm(port) {
         submit.disabled = true;
 
         try {
-            await postJson("/admin/https/duckdns", {
+            const result = await postJson("/admin/https/duckdns", {
                 subdomain: sub.value.trim(), token: tok.value.trim(), game_address: game.checked
             });
+            httpsTarget = result.url;
             tok.value = "";
             loadHttps();
         } catch (error) {
@@ -267,10 +275,19 @@ function renderHttps(data) {
         if (dd.expires) box.append(expiryRow(t("https.expires"), dd.expires));
         box.append(el("div", "sto-note is-green", t("https.dd.share")));
 
-        // Recien activado: se pasa a la direccion con el dominio
-        if (location.hostname !== dd.domain && task.finished && Date.now() / 1000 - task.finished < 120) {
-            box.append(el("div", "sto-note", t("https.opening")));
-            setTimeout(function() { location.href = url + location.hash; }, 6000);
+        // Si esta pagina no se abrio con el dominio, se ofrece la direccion segura
+        // (y recien activado se abre sola)
+        if (location.hostname !== dd.domain) {
+            const open = el("a", "btn btn-start btn-small", t("https.openSecure"));
+            open.href = url + location.hash;
+            const actions = el("div", "sto-actions");
+            actions.append(open);
+            box.append(actions);
+
+            if (httpsTarget || (task.finished && Date.now() / 1000 - task.finished < 120)) {
+                box.append(el("div", "sto-note", t("https.opening")));
+                setTimeout(function() { location.href = url + location.hash; }, 6000);
+            }
         }
 
         if (isSystemOwner()) box.append(httpsOffButton());
