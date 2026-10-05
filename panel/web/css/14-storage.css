@@ -195,3 +195,53 @@
         flex: 1;
     }
 }
+
+/* ---------- Actualizaciones y acceso seguro ---------- */
+
+.sys-box {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.sys-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+    padding: 6px 0;
+    border-bottom: 1px solid var(--border);
+}
+
+.sys-row a {
+    color: var(--green);
+    overflow-wrap: anywhere;
+}
+
+.https-suffix {
+    align-self: center;
+    color: var(--muted);
+    font-family: var(--mono);
+    font-size: 13px;
+    white-space: nowrap;
+}
+
+.sto-note.is-green {
+    color: var(--green);
+}
+
+.https-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.https-row input {
+    flex: 1;
+    min-width: 0;
+}
+
+.sys-box .sto-note a {
+    color: var(--green);
+}

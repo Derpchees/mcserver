@@ -7,8 +7,8 @@ import os
 import re
 import time
 import threading
-import secrets
 
+import backup_schedule
 import mcpanel_core as core
 
 from .common import FileError, log_server_action
@@ -21,57 +21,10 @@ from .icons import write_server_icon
 from .storage_admin import data_disk_ready, storage_alert
 
 
-SESSION_COOKIE = "mcpanel"
-SESSION_SECONDS = 12 * 3600
 VERSION_TEXT = re.compile(r"^(LATEST|SNAPSHOT|[0-9][0-9A-Za-z._-]{0,19})$")
 
-_sessions = {}
 _failed_logins = {}
 _auth_lock = threading.Lock()
-
-
-def create_session(user_id):
-    token = secrets.token_urlsafe(32)
-
-    with _auth_lock:
-        now = time.time()
-
-        for key in [k for k, v in _sessions.items() if v[1] < now]:
-            del _sessions[key]
-
-        _sessions[token] = (user_id, now + SESSION_SECONDS)
-
-    return token
-
-
-def session_user(token):
-    if not token:
-        return None
-
-    with _auth_lock:
-        entry = _sessions.get(token)
-
-        if not entry or entry[1] < time.time():
-            _sessions.pop(token, None)
-            return None
-
-    user = core.get_user(entry[0])
-
-    if not user:
-        end_session(token)
-
-    return user
-
-
-def end_session(token):
-    with _auth_lock:
-        _sessions.pop(token, None)
-
-
-def end_user_sessions(user_id):
-    with _auth_lock:
-        for key in [k for k, v in _sessions.items() if v[0] == user_id]:
-            del _sessions[key]
 
 
 def login_blocked(ip):
@@ -336,6 +289,9 @@ def create_server_for(user, data):
     try:
         set_motd(srv, srv.name, None)
         write_server_icon(srv)
+        # Un servidor nuevo no tiene mundo que respaldar: el primer respaldo
+        # automatico toca en el siguiente turno del horario
+        backup_schedule.mark_done(srv)
     except OSError:
         pass
     build_in_background(srv, start=True)

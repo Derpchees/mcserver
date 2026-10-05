@@ -12,18 +12,9 @@ try {
 }
 
 
-const SOUND_ICONS = {
-    on: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5 6 9H2v6h4l5 4z"/><path d="M15.5 8.5a5 5 0 0 1 0 7M19 5a10 10 0 0 1 0 14"/></svg>',
-    off: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5 6 9H2v6h4l5 4z"/><path d="m22 9-6 6M16 9l6 6"/></svg>'
-};
-
-
+// El boton vive en el menu de avisos (24-alerts-menu.js)
 function renderSoundButton() {
-    const btn = $("soundBtn");
-    btn.innerHTML = soundOn ? SOUND_ICONS.on : SOUND_ICONS.off;
-    btn.title = soundOn
-        ? t("sound.on")
-        : t("sound.off");
+    renderAlertsButton();
 }
 
 
@@ -112,24 +103,3 @@ function playChime() {
         tone.disconnect();
     }, 4000);
 }
-
-
-function toggleSound() {
-
-    soundOn = !soundOn;
-
-    try {
-        localStorage.setItem("mc-sound", soundOn ? "on" : "off");
-    } catch (error) {
-    }
-
-    renderSoundButton();
-
-    if (soundOn) {
-        getAudio();
-        setTimeout(playChime, 60);
-    }
-}
-
-
-renderSoundButton();

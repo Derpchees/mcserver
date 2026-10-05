@@ -70,5 +70,6 @@ async function refreshAuth() {
 
     renderAccountArea();
     renderStorageBanner();
+    renderAlertsButton();
     return authState;
 }

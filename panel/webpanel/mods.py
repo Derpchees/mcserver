@@ -12,7 +12,7 @@ import urllib.error
 import mcpanel_core as core
 
 from .common import FileError, log_server_action, read_json_file, S, use_server, write_json_file
-from .containers import pending_path, request_rebuild
+from .containers import has_pending, request_rebuild
 
 
 CF_API = "https://api.curseforge.com/v1"
@@ -290,7 +290,7 @@ def mods_state():
         "projects": [dict(meta.get(slug, {}), slug=slug, version=pins.get(slug, "")) for slug in mod_slugs()],
         "files": files,
         "modpack": modpack,
-        "pending": os.path.exists(pending_path(S())),
+        "pending": has_pending(S()),
         "running": core.container_state(S())[0] == "running"
     }
 

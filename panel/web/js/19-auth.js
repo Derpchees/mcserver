@@ -64,6 +64,15 @@ function renderAuth(mode) {
         withServer.onchange = function() { fields.hidden = !withServer.checked; };
     }
 
+    // Con la casilla, la sesion dura 30 dias (y se renueva al usarla);
+    // sin ella, hasta cerrar el navegador
+    const rememberWrap = el("label", "un-check auth-remember");
+    const remember = el("input");
+    remember.type = "checkbox";
+    remember.checked = mode !== "login";
+    rememberWrap.append(remember, document.createTextNode(" " + t("auth.remember")));
+    form.append(rememberWrap);
+
     const submit = el("button", "btn btn-start", t("auth." + mode + "Btn"));
     submit.type = "submit";
     submit.style.width = "100%";
@@ -80,7 +89,7 @@ function renderAuth(mode) {
             return;
         }
 
-        const body = { username: user.value.trim(), password: pass.value };
+        const body = { username: user.value.trim(), password: pass.value, remember: remember.checked };
 
         if (mode === "setup") body.public_access = publicBox.checked;
 

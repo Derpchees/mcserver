@@ -31,6 +31,10 @@ import time
 
 CONFIG_ENV = os.environ.get("MCPANEL_CONFIG", "/etc/mcpanel/config.env")
 
+# Los scripts que se lanzan con systemd-run no heredan el entorno: asi
+# usan la misma configuracion (importa si hay mas de una instalacion)
+CONFIG_SETENV = "--setenv=MCPANEL_CONFIG=" + CONFIG_ENV
+
 
 def load_env(path):
     # Formato KEY="valor", el mismo que leen los scripts de bash
@@ -83,6 +87,15 @@ MC_UID = int(cfg("MC_UID", "1000"))
 MC_GID = int(cfg("MC_GID", "1000"))
 IMAGE = cfg("IMAGE", "itzg/minecraft-server")
 DOCKER_NETWORK = cfg("DOCKER_NETWORK", "mcpanel-net")
+
+# HTTPS: certificado y clave (los pone el panel al activar el acceso seguro)
+TLS_CERT = cfg("TLS_CERT", "")
+TLS_KEY = cfg("TLS_KEY", "")
+PANEL_DOMAIN = cfg("PANEL_DOMAIN", "")
+
+
+def tls_enabled():
+    return bool(TLS_CERT and TLS_KEY and os.path.isfile(TLS_CERT) and os.path.isfile(TLS_KEY))
 
 DB_PATH = os.path.join(STATE_ROOT, "mcpanel.db")
 
@@ -287,6 +300,20 @@ CREATE TABLE IF NOT EXISTS events (
 );
 
 CREATE INDEX IF NOT EXISTS events_server ON events(server_id, id);
+
+-- Sesiones del panel: id = SHA-256 del token de la cookie (nunca el token)
+CREATE TABLE IF NOT EXISTS sessions (
+    id TEXT PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    created INTEGER NOT NULL,
+    expires INTEGER NOT NULL,
+    last_seen INTEGER NOT NULL,
+    remember INTEGER NOT NULL DEFAULT 0,
+    ip TEXT NOT NULL DEFAULT '',
+    agent TEXT NOT NULL DEFAULT ''
+);
+
+CREATE INDEX IF NOT EXISTS sessions_user ON sessions(user_id);
 """
 
 
@@ -704,6 +731,52 @@ def container_state(srv):
     return status, health
 
 
+def container_spec(srv):
+    # Como debe quedar el contenedor del servidor. Lo usan build_container
+    # (para crearlo) y container_matches (para saber si hay cambios pendientes).
+    image = "%s:%s" % (IMAGE, ("java" + srv.java) if srv.java else java_tag(srv.version))
+
+    tz = subprocess.run(["timedatectl", "show", "-p", "Timezone", "--value"],
+                        capture_output=True, text=True).stdout.strip() or "UTC"
+
+    env = {
+        "EULA": "TRUE",
+        "TYPE": srv.type,
+        "VERSION": srv.version,
+        "INIT_MEMORY": "%dG" % max(1, srv.max_gb // 2),
+        "MAX_MEMORY": "%dG" % srv.max_gb,
+        "UID": str(MC_UID),
+        "GID": str(MC_GID),
+        "TZ": tz
+    }
+
+    if srv.type == "PAPER":
+        env["USE_AIKAR_FLAGS"] = "true"
+
+    for key, value in sorted(srv.extra_env.items()):
+        env[key] = str(value)
+
+    # Las dependencias obligatorias de los mods de Modrinth se instalan solas
+    if "MODRINTH_PROJECTS" in srv.extra_env and "MODRINTH_DOWNLOAD_DEPENDENCIES" not in srv.extra_env:
+        env["MODRINTH_DOWNLOAD_DEPENDENCIES"] = "required"
+
+    # CurseForge necesita la clave de API para modpacks y mods
+    if srv.type == "AUTO_CURSEFORGE" or "CURSEFORGE_FILES" in srv.extra_env:
+        key = get_setting("cf_api_key")
+
+        if key:
+            env["CF_API_KEY"] = key
+
+    return {
+        "image": image,
+        "env": env,
+        "cpus": srv.cpu if srv.cpu and srv.cpu > 0 else 0,
+        "restart": "no" if srv.autostop else "unless-stopped",
+        "port": srv.internal_port,
+        "data": srv.data_dir
+    }
+
+
 def build_container(srv, start=False):
     # (Re)crea el contenedor con los recursos del servidor. El mundo vive
     # en la carpeta del servidor, asi que recrearlo no borra nada.
@@ -713,65 +786,79 @@ def build_container(srv, start=False):
     srv.ensure_dirs()
     srv.write_env()
 
-    # Java elegido a mano o el que corresponde a la version de Minecraft
-    image = "%s:%s" % (IMAGE, ("java" + srv.java) if srv.java else java_tag(srv.version))
+    spec = container_spec(srv)
 
-    if docker("image", "inspect", image).returncode != 0:
-        docker("pull", "-q", image, check=True)
+    if docker("image", "inspect", spec["image"]).returncode != 0:
+        docker("pull", "-q", spec["image"], check=True)
 
     if docker("network", "inspect", DOCKER_NETWORK).returncode != 0:
         docker("network", "create", DOCKER_NETWORK)
 
     docker("rm", "-f", srv.container)
 
-    tz = subprocess.run(["timedatectl", "show", "-p", "Timezone", "--value"],
-                        capture_output=True, text=True).stdout.strip() or "UTC"
-
-    init_gb = max(1, srv.max_gb // 2)
-
     args = [
         "create",
         "--name", srv.container,
         "--network", DOCKER_NETWORK,
         "--label", "mcpanel.server=" + srv.slug,
-        "-p", "127.0.0.1:%d:25565" % srv.internal_port,
-        "-v", "%s:/data" % srv.data_dir,
-        "-e", "EULA=TRUE",
-        "-e", "TYPE=" + srv.type,
-        "-e", "VERSION=" + srv.version,
-        "-e", "INIT_MEMORY=%dG" % init_gb,
-        "-e", "MAX_MEMORY=%dG" % srv.max_gb,
-        "-e", "UID=%d" % MC_UID,
-        "-e", "GID=%d" % MC_GID,
-        "-e", "TZ=" + tz,
+        "-p", "127.0.0.1:%d:25565" % spec["port"],
+        "-v", "%s:/data" % spec["data"],
         "--stop-timeout", "60",
-        "--restart", "no" if srv.autostop else "unless-stopped"
+        "--restart", spec["restart"]
     ]
 
-    if srv.type == "PAPER":
-        args += ["-e", "USE_AIKAR_FLAGS=true"]
-
-    for key, value in sorted(srv.extra_env.items()):
+    for key, value in spec["env"].items():
         args += ["-e", "%s=%s" % (key, value)]
 
-    # Las dependencias obligatorias de los mods de Modrinth se instalan solas
-    if "MODRINTH_PROJECTS" in srv.extra_env and "MODRINTH_DOWNLOAD_DEPENDENCIES" not in srv.extra_env:
-        args += ["-e", "MODRINTH_DOWNLOAD_DEPENDENCIES=required"]
+    if spec["cpus"]:
+        args += ["--cpus", str(spec["cpus"])]
 
-    # CurseForge necesita la clave de API para modpacks y mods
-    if srv.type == "AUTO_CURSEFORGE" or "CURSEFORGE_FILES" in srv.extra_env:
-        key = get_setting("cf_api_key")
-
-        if key:
-            args += ["-e", "CF_API_KEY=" + key]
-
-    if srv.cpu and srv.cpu > 0:
-        args += ["--cpus", str(srv.cpu)]
-
-    docker(*(args + [image]), check=True)
+    docker(*(args + [spec["image"]]), check=True)
 
     if start:
         docker("start", srv.container, check=True)
+
+
+def container_matches(srv):
+    # True si el contenedor que existe ya tiene exactamente la configuracion
+    # actual del servidor (entonces no hay nada pendiente de aplicar)
+    result = docker("inspect", srv.container)
+
+    if result.returncode != 0:
+        return False
+
+    try:
+        info = json.loads(result.stdout)[0]
+    except (ValueError, IndexError):
+        return False
+
+    spec = container_spec(srv)
+    config = info.get("Config") or {}
+    host = info.get("HostConfig") or {}
+
+    if config.get("Image") != spec["image"]:
+        return False
+
+    if (host.get("RestartPolicy") or {}).get("Name", "no") != spec["restart"]:
+        return False
+
+    if int(host.get("NanoCpus") or 0) != int(spec["cpus"] * 1e9):
+        return False
+
+    # Variables propias: las del contenedor menos las que trae la imagen
+    current = dict(item.split("=", 1) for item in config.get("Env") or [] if "=" in item)
+    image_info = docker("image", "inspect", spec["image"])
+
+    try:
+        image_env = json.loads(image_info.stdout)[0]["Config"]["Env"] or []
+        defaults = dict(item.split("=", 1) for item in image_env if "=" in item)
+    except (ValueError, IndexError, KeyError, TypeError):
+        defaults = {}
+
+    own = {k: v for k, v in current.items() if defaults.get(k) != v}
+    wanted = {k: v for k, v in spec["env"].items() if defaults.get(k) != v}
+
+    return own == wanted
 
 
 def remove_container(srv):

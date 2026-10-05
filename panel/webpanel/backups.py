@@ -82,7 +82,7 @@ def start_backup():
 
     result = subprocess.run(
         ["systemd-run", "--unit", "mcpanel-backup-%s-%d" % (S().slug, int(time.time())),
-         "--collect", "--quiet", "--nice=10",
+         "--collect", "--quiet", "--nice=10", core.CONFIG_SETENV,
          os.path.join(INSTALL_DIR, "bin", "mcpanel-backup.sh"), S().slug, "manual"],
         capture_output=True,
         text=True

@@ -6,11 +6,13 @@
 #   partition  particion existente sin montar (se monta, no se formatea)
 #   lvm        volumen nuevo en un grupo LVM con espacio libre
 #   folder     carpeta en un disco ya montado; con tamano, archivo reservado
+#   rebuild    rehacer un disco con poco contenido (solo respaldos, rebuild.py)
 #
 
 import os
 
 from . import disks, system
+from .rebuild import rebuildable_disks
 from .status import role_status
 
 
@@ -95,6 +97,11 @@ def storage_options(role):
         options.append({"kind": "newpart", "target": hole["disk"]["path"], "start": hole["start"],
                         "free": hole["size"], "empty_disk": hole["empty"], "disk_size": hole["disk"]["size"],
                         **about(hole["disk"])})
+
+    if role == "backups":
+        for item in rebuildable_disks():
+            options.append({"kind": "rebuild", "target": item["disk"]["path"], "free": item["size"],
+                            "content": item["content"], "mounts": item["mounts"], **about(item["disk"])})
 
     for part in unmounted_partitions():
         options.append({"kind": "partition", "target": part["device"], "free": part["size"],

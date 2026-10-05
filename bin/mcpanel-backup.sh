@@ -9,8 +9,10 @@
 # se copia, para que el mundo quede consistente.
 #
 
-CORE="/opt/mcpanel/panel/mcpanel_core.py"
-ANNOUNCE="/opt/mcpanel/panel/announce.py"
+# El codigo esta junto a este script (normalmente /opt/mcpanel)
+INSTALL_DIR="$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)"
+CORE="$INSTALL_DIR/panel/mcpanel_core.py"
+ANNOUNCE="$INSTALL_DIR/panel/announce.py"
 SLUG="${1:-}"
 TYPE="${2:-manual}"
 

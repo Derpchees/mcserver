@@ -25,9 +25,12 @@ from .players import list_players, player_action
 from .properties import get_settings, save_settings
 from .backups import backup_path, delete_backup, list_backups, start_backup
 from .accounts import (
-    auth_state, can_manage, change_password, create_server_for, create_session, end_session,
-    login_blocked, register_login, SESSION_COOKIE, SESSION_SECONDS, session_user, setup_admin,
-    signup,
+    auth_state, can_manage, change_password, create_server_for, login_blocked, register_login,
+    setup_admin, signup,
+)
+from .sessions import (
+    clear_cookie_header, cookie_header, create_session, end_session, end_session_by_id,
+    end_user_sessions, list_sessions, SESSION_COOKIE, session_user,
 )
 from .servers import (
     check_double_confirm, delete_account, delete_server, list_public_servers,
@@ -47,6 +50,7 @@ from .mods import (
 )
 from .mod_versions import modpack_versions, project_versions, set_modpack_version, set_project_version
 from .storage_admin import data_disk_ready, storage_action, storage_get, storage_options_for
+from .system_admin import system_action, system_get
 from .webassets import web
 
 
@@ -122,12 +126,10 @@ class Handler(BaseHTTPRequestHandler):
         return data
 
 
-    def login_cookie(self, user):
-        token = create_session(user["id"])
-        return {
-            "Set-Cookie": SESSION_COOKIE + "=" + token + "; Path=/; Max-Age="
-            + str(SESSION_SECONDS) + "; HttpOnly; SameSite=Strict"
-        }
+    def login_cookie(self, user, remember=False):
+        token = create_session(user["id"], remember, self.client_address[0],
+                               self.headers.get("User-Agent", ""))
+        return cookie_header(token, remember)
 
 
     def deny(self, user):
@@ -157,7 +159,7 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
 
         path, param = self.route()
-        user = session_user(self.session_token())
+        user = session_user(self.session_token(), self.client_address[0])
         use_server(None)
 
         scoped = re.match(r"^/s/(\d+)(/.*)$", path)
@@ -168,6 +170,12 @@ class Handler(BaseHTTPRequestHandler):
 
         if path == "/auth/state":
             self.send_json(auth_state(user))
+
+        elif path == "/me/sessions":
+            if not user:
+                return self.deny(user)
+
+            self.send_json({"sessions": list_sessions(user["id"], self.session_token())})
 
         elif path == "/servers":
             if not public_ok(user):
@@ -212,6 +220,12 @@ class Handler(BaseHTTPRequestHandler):
                 return self.deny(user)
 
             self.send_json({"users": admin_users()} if path == "/admin/users" else admin_get_settings())
+
+        elif path in ("/admin/https", "/admin/update"):
+            if not user or user["role"] != "admin":
+                return self.deny(user)
+
+            self.guarded(lambda: self.send_json(system_get(path, param("force") == "1")))
 
         elif path in ("/admin/storage", "/admin/storage/options"):
             if not user or user["role"] != "admin":
@@ -343,7 +357,7 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
 
         path, param = self.route()
-        user = session_user(self.session_token())
+        user = session_user(self.session_token(), self.client_address[0])
         use_server(None)
 
         scoped = re.match(r"^/s/(\d+)(/.*)$", path)
@@ -374,40 +388,50 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_json({"ok": False, "message": "Usuario o contraseña incorrectos"}, 401)
                 return
 
-            self.send_json({"ok": True}, headers=self.login_cookie(found))
+            self.send_json({"ok": True}, headers=self.login_cookie(found, bool(data.get("remember"))))
 
         elif path == "/auth/logout":
             end_session(self.session_token())
-            self.send_json({"ok": True}, headers={
-                "Set-Cookie": SESSION_COOKIE + "=; Path=/; Max-Age=0; HttpOnly; SameSite=Strict"
-            })
+            self.send_json({"ok": True}, headers=clear_cookie_header())
 
         elif path == "/auth/setup":
-            new_user = setup_admin(self.json_body())
-            self.send_json({"ok": True}, headers=self.login_cookie(new_user))
+            data = self.json_body()
+            new_user = setup_admin(data)
+            self.send_json({"ok": True}, headers=self.login_cookie(new_user, bool(data.get("remember"))))
 
         elif path == "/auth/signup":
             if login_blocked(ip):
                 self.send_json({"ok": False, "message": "Demasiados intentos. Espera 5 minutos."}, 429)
                 return
 
-            new_user = signup(self.json_body())
-            self.send_json({"ok": True}, headers=self.login_cookie(new_user))
+            data = self.json_body()
+            new_user = signup(data)
+            self.send_json({"ok": True}, headers=self.login_cookie(new_user, bool(data.get("remember"))))
 
         elif not user:
             self.deny(user)
 
         elif path == "/me/password":
-            self.send_json(change_password(user, self.json_body(4096)))
+            result = change_password(user, self.json_body(4096))
+            # Con la contrasena nueva, las demas sesiones dejan de valer
+            end_user_sessions(user["id"], keep_token=self.session_token())
+            self.send_json(result)
+
+        elif path == "/me/sessions/end":
+            if not end_session_by_id(user["id"], str(self.json_body(4096).get("id", ""))):
+                raise FileError("Esa sesión ya no existe", 404)
+            self.send_json({"ok": True, "message": "Sesión cerrada"})
+
+        elif path == "/me/sessions/end-others":
+            end_user_sessions(user["id"], keep_token=self.session_token())
+            self.send_json({"ok": True, "message": "Sesiones cerradas"})
 
         elif path == "/me/default":
             self.send_json(set_personal_default(user, self.json_body(4096)))
 
         elif path == "/me/delete":
             result = delete_account(user, self.json_body(4096))
-            self.send_json(result, headers={
-                "Set-Cookie": SESSION_COOKIE + "=; Path=/; Max-Age=0; HttpOnly; SameSite=Strict"
-            })
+            self.send_json(result, headers=clear_cookie_header())
 
         elif path == "/servers/create":
             srv = create_server_for(user, self.json_body())
@@ -427,6 +451,9 @@ class Handler(BaseHTTPRequestHandler):
 
         elif path.startswith("/admin/storage/"):
             self.send_json(storage_action(user, path, self.json_body(4096)))
+
+        elif path.startswith(("/admin/https/", "/admin/update/")):
+            self.send_json(system_action(user, path, self.json_body(4096)))
 
         elif path == "/admin/uninstall":
             if not is_owner(user):

@@ -266,7 +266,8 @@ async function searchMods(event) {
 
 
 function appliedToast(data, message) {
-    if (data.applied === "none") return;
+    // "none": el servidor ya tenia esa configuracion (ej. se deshizo un cambio)
+    if (data.applied === "none") return showToast(message, "green");
     showToast(message + " " + (data.applied === "pending" ? t("mods.pendingToast") : t("mods.appliedToast")),
         data.applied === "pending" ? "amber" : "green");
 }

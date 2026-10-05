@@ -10,7 +10,7 @@ import calendar
 
 from .common import autostop_info, command, container_info, read_lines, S
 from .motd import read_motd
-from .containers import pending_path
+from .containers import has_pending
 
 
 def activity():
@@ -137,7 +137,7 @@ def server_data():
         "events": recent_events(lines),
         "autostop": autostop_info(),
         "motd": read_motd(S()),
-        "pending": os.path.exists(pending_path(S()))
+        "pending": has_pending(S())
     }
 
 

@@ -137,8 +137,9 @@ body,
 .header-right {
     display: flex;
     align-items: center;
-    gap: 12px;
+    gap: 8px;
     flex-wrap: wrap;
+    justify-content: flex-end;
 }
 
 .tabs {
@@ -156,7 +157,7 @@ body,
     gap: 7px;
     border: 0;
     border-radius: 8px;
-    padding: 7px 13px;
+    padding: 7px 11px;
     background: transparent;
     color: var(--muted);
     font-family: inherit;

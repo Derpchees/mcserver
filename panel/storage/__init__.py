@@ -18,6 +18,7 @@
 #   jobs.py      tareas en segundo plano
 #   spaces.py    crear y montar espacios (particiones, LVM, archivos)
 #   relocate.py  mover datos, agrandar, pausar respaldos
+#   rebuild.py   rehacer un disco con poco contenido sin perderlo
 #
 # Lo usan el panel (estado y tareas) y el agente (deteccion de discos).
 #

@@ -3,7 +3,7 @@
 // ============================================================
 
 const GIB = 1024 * 1024 * 1024;
-const STORAGE_KIND_ORDER = ["newpart", "partition", "lvm", "folder"];
+const STORAGE_KIND_ORDER = ["newpart", "rebuild", "partition", "lvm", "folder"];
 
 let storageTimer = null;
 let storageJobRunning = false;
@@ -193,6 +193,7 @@ function storageOptionRow(option, role, name) {
     const tags = el("div", "sto-tags");
     if (option.current) tags.append(el("span", "tag", t("sto.current")));
     if (option.empty_disk) tags.append(el("span", "tag blue", t("sto.emptyDisk")));
+    if (option.kind === "rebuild") tags.append(el("span", "tag amber", t("sto.rebuildContent", { size: formatBytes(option.content) })));
     if (option.system_disk) tags.append(el("span", "tag", t("sto.systemDisk")));
     if (option.same_as_other) {
         tags.append(el("span", "tag amber", t(role === "backups" ? "sto.sameAsServers" : "sto.sameAsBackups")));
@@ -282,7 +283,7 @@ async function configureStorage(role, option, current) {
     let extraName = null;
     let existing = null;
 
-    if (option.kind === "newpart") {
+    if (option.kind === "newpart" || option.kind === "rebuild") {
         size = numberField(t("sto.sizeGb"), role === "backups" ? Math.min(maxGb, Math.max(5, Math.floor(maxGb / 2))) : maxGb, 5, maxGb);
         body.push(size.wrap);
 
@@ -301,7 +302,8 @@ async function configureStorage(role, option, current) {
 
         size.input.oninput = refresh;
         extra.box.onchange = refresh;
-        body.push(extra.wrap, extraName, left, el("div", "sto-note", t("sto.newpartNote")));
+        body.push(extra.wrap, extraName, left, el("div", "sto-note",
+            option.kind === "rebuild" ? t("sto.rebuildNote", { mounts: option.mounts.join(", ") }) : t("sto.newpartNote")));
         refresh();
     }
 
@@ -329,6 +331,8 @@ async function configureStorage(role, option, current) {
 
     if (role === "data") {
         body.push(el("div", "sto-note is-amber", t("sto.dataStop")));
+    } else if (option.kind === "rebuild") {
+        // Los respaldos del disco se devuelven solos a la particion nueva
     } else if (current && current.available) {
         existing = el("select", "input");
         ["move", "copy", "leave"].forEach(function(key) {
@@ -385,6 +389,14 @@ async function configureStorage(role, option, current) {
         confirmed = await doubleConfirm({
             title: t("sto.initTitle"),
             description: t("sto.initDesc", { disk: option.disk, name: option.disk_name }),
+            word: option.disk_name,
+            okText: t("sto.apply")
+        });
+    } else if (option.kind === "rebuild") {
+        confirmed = await doubleConfirm({
+            title: t("sto.rebuildTitle"),
+            description: t("sto.rebuildDesc", { disk: option.disk, mounts: option.mounts.join(", "),
+                                                 size: formatBytes(option.content), gb: params.size_gb }),
             word: option.disk_name,
             okText: t("sto.apply")
         });

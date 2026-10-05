@@ -10,7 +10,8 @@ import time
 import mcpanel_core as core
 
 from .common import FileError, INSTALL_DIR
-from .accounts import check_new_password, end_user_sessions
+from .accounts import check_new_password
+from .sessions import end_user_sessions
 from .servers import check_double_confirm, delete_server
 from .access import is_owner
 
@@ -164,7 +165,7 @@ def start_uninstall(data):
     # Corre fuera de este servicio, que se va a detener y borrar
     result = subprocess.run(
         ["systemd-run", "--unit", "mcpanel-uninstall-%d" % int(time.time()),
-         "--collect", "--quiet"] + args,
+         "--collect", "--quiet", core.CONFIG_SETENV] + args,
         capture_output=True,
         text=True
     )
@@ -185,9 +186,12 @@ def user_events(user, since):
         ids = [s.id for s in core.servers_of(user["id"])]
 
     events = core.events_since(since, ids, user["role"] == "admin")
-    names = {s.id: s.name for s in core.list_servers()}
+    servers = {s.id: s for s in core.list_servers()}
 
     for event in events:
-        event["server"] = names.get(event["server_id"])
+        srv = servers.get(event["server_id"])
+        event["server"] = srv.name if srv else None
+        # La pagina dibuja el icono del servidor con su slug
+        event["server_slug"] = srv.slug if srv else None
 
     return {"last": events[-1]["id"] if events else since, "events": events}

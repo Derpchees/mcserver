@@ -164,7 +164,13 @@ class Proxy:
             await run("docker", "start", srv.container)
 
             for i in range(START_TIMEOUT):
-                if await port_open(srv.internal_port):
+                # El puerto de Docker acepta conexiones antes de que Minecraft
+                # termine de arrancar: se espera a la comprobacion de salud
+                # de la imagen (o al puerto, si no la tiene)
+                _, health, _ = await inspect(srv)
+                ready = await port_open(srv.internal_port) if health == "no-health" else health == "healthy"
+
+                if ready:
                     log(srv, "proxy.log", "MINECRAFT DISPONIBLE | espera=%ds" % (i + 1))
                     break
 
@@ -211,6 +217,7 @@ class Monitor:
     def __init__(self):
         self.idle_since = {}
         self.last_status = {}
+        self.last_health = {}
         self.announced_ready = set()
 
     def write_state(self, srv, data):
@@ -250,6 +257,7 @@ class Monitor:
         status, health, exit_code = await inspect(srv)
         previous = self.last_status.get(srv.id)
         self.last_status[srv.id] = status
+        self.last_health[srv.id] = health
         idle_total = srv.idle_minutes * 60
 
         # Transiciones -> eventos
@@ -335,7 +343,7 @@ class Monitor:
 _warned = {}
 
 
-async def schedule_backups(servers, statuses):
+async def schedule_backups(servers, statuses, healths):
     # Sin disco de respaldos se pausan; al volver se recupera el que falto
     if not watch.backups_ready():
         return
@@ -348,6 +356,11 @@ async def schedule_backups(servers, statuses):
 
         # Encendido y apagado tienen su propio intervalo
         running = statuses.get(srv.id) == "running"
+
+        # Mientras arranca no se respalda: no se podria pausar el guardado
+        # y la copia podria quedar a medias. Se hace al quedar listo.
+        if running and healths.get(srv.id) != "healthy":
+            continue
 
         # Un minuto antes se avisa a los jugadores (una vez por turno)
         upcoming = backup_schedule.next_run(srv, running, now)
@@ -368,7 +381,7 @@ async def schedule_backups(servers, statuses):
         srv.write_env()
 
         await run("systemd-run", "--unit", "mcpanel-backup-%s-%d" % (srv.slug, int(time.time())),
-                  "--collect", "--quiet", "--nice=10",
+                  "--collect", "--quiet", "--nice=10", core.CONFIG_SETENV,
                   os.path.join(core.INSTALL_DIR, "bin", "mcpanel-backup.sh"), srv.slug, "auto")
 
 
@@ -463,7 +476,7 @@ async def main():
 
             if time.time() - last_backup_check >= 30:
                 last_backup_check = time.time()
-                await schedule_backups(servers, monitor.last_status)
+                await schedule_backups(servers, monitor.last_status, monitor.last_health)
 
             if time.time() - last_system >= 60:
                 last_system = time.time()

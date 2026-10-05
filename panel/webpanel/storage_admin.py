@@ -7,7 +7,7 @@
 
 import mcpanel_core as core
 
-from storage import relocate, status
+from storage import rebuild, relocate, status
 from storage.options import storage_options
 from storage.system import StorageError
 
@@ -31,6 +31,12 @@ def storage_action(user, path, data):
         raise FileError("Solo el dueño del sistema puede cambiar el almacenamiento", 403)
 
     try:
+        if path == "/admin/storage/relocate" and data.get("kind") == "rebuild":
+            if data.get("role") != "backups":
+                raise FileError("Solo se puede rehacer un disco para los respaldos")
+            return rebuild.rebuild(str(data.get("target", "")), data.get("size_gb") or 0,
+                                   str(data.get("extra_name") or ""))
+
         if path == "/admin/storage/relocate":
             start = data.get("start")
             return relocate.relocate(

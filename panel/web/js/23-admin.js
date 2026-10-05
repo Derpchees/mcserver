@@ -13,6 +13,8 @@ async function loadAdmin() {
         renderAdminSettings(settings);
         renderAdminUsers(users.users || []);
         loadStorage();
+        loadUpdate(false);
+        loadHttps();
     } catch (error) {
         showToast(t("login.noConnection"), "red");
     }

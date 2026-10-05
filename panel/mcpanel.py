@@ -14,6 +14,7 @@
 
 from http.server import ThreadingHTTPServer
 import os
+import ssl
 import sys
 import threading
 
@@ -33,5 +34,16 @@ threading.Thread(target=slow_stats_loop, daemon=True).start()
 threading.Thread(target=timeout_loop, daemon=True).start()
 
 server = ThreadingHTTPServer((BIND, PORT), Handler)
-print("MCServer panel escuchando en %s:%d" % (BIND, PORT), flush=True)
+
+# Con certificado el panel habla HTTPS (los navegadores lo exigen, por
+# ejemplo, para las notificaciones). El saludo TLS se hace en el hilo de
+# cada conexion, no en el que acepta, para que un cliente lento no frene a
+# los demas.
+if core.tls_enabled():
+    context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    context.minimum_version = ssl.TLSVersion.TLSv1_2
+    context.load_cert_chain(core.TLS_CERT, core.TLS_KEY)
+    server.socket = context.wrap_socket(server.socket, server_side=True, do_handshake_on_connect=False)
+
+print("MCServer panel escuchando en %s://%s:%d" % ("https" if core.tls_enabled() else "http", BIND, PORT), flush=True)
 server.serve_forever()

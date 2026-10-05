@@ -10,7 +10,7 @@ function renderAccount() {
     $("pwCurrent").value = "";
     $("pwNew").value = "";
     $("pwNew2").value = "";
-    renderNotifySwitch();
+    loadSessions();
 }
 
 

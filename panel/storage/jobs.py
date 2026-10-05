@@ -52,12 +52,24 @@ STEPS = {
     "delete_old": "Borrando la copia anterior de {server}",
     "grow": "Agrandando el espacio a {gb} GB",
     "done": "Listo",
+    "rebuild_copy": "Copiando el contenido de {mount} al disco del sistema ({n} de {total})",
+    "rebuild_unmount": "Desmontando el disco",
+    "rebuild_table": "Creando la tabla de particiones nueva en {disk}",
+    "rebuild_restore": "Devolviendo los respaldos de {server}",
+    "rebuild_others": "Devolviendo los demas archivos a {mount}",
 }
 
 
+_last_logged = {"text": None}
+
+
 def step(code, progress=None, **values):
-    if progress is None or progress in (0, 100):
-        log(STEPS.get(code, code).format(**values))
+    # Al registro solo van los pasos (no cada avance) y sin repetir lineas
+    text = STEPS.get(code, code).format(**values)
+
+    if (progress is None or progress in (0, 100)) and text != _last_logged["text"]:
+        _last_logged["text"] = text
+        log(text)
 
     with _job_lock:
         _job["step"] = code

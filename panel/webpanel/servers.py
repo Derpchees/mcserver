@@ -9,7 +9,8 @@ import shutil
 import mcpanel_core as core
 
 from .common import FileError, log_server_action, read_json_file, set_stop_hint
-from .accounts import clean_server_fields, end_user_sessions
+from .accounts import clean_server_fields
+from .sessions import end_user_sessions
 from .versions import LOADER_ENV
 from .access import is_owner
 from .motd import read_motd

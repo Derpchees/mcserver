@@ -8,7 +8,9 @@
 #   sudo mcpanel-passwd --list
 #
 
-CORE="/opt/mcpanel/panel/mcpanel_core.py"
+# El codigo esta junto a este script (tambien si se llama por el enlace de /usr/local/bin)
+INSTALL_DIR="$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)"
+CORE="$INSTALL_DIR/panel/mcpanel_core.py"
 
 if [ "$(id -u)" -ne 0 ]; then
     echo "Corre este comando con sudo / Run with sudo." >&2

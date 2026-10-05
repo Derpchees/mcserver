@@ -15,7 +15,7 @@
 
 set -euo pipefail
 
-VERSION="2.2.0"
+VERSION="2.3.0"
 REPO="Derpchees/mcserver"
 INSTALL_DIR="/opt/mcpanel"
 CONFIG_DIR="/etc/mcpanel"
@@ -91,6 +91,24 @@ ES[port_busy]="El puerto %s ya está en uso. Elige otro."
 EN[address]="Address players will use to connect (IP or domain, without port):"
 ES[address]="Dirección que usarán los jugadores para conectarse (IP o dominio, sin puerto):"
 EN[eula]="Minecraft servers require accepting the Mojang EULA:\nhttps://aka.ms/MinecraftEULA\n\nServers created in this panel accept it. Do you accept it?"
+EN[https]="Optional: secure access (HTTPS).
+
+Browsers only allow notifications on secure pages. With a free DuckDNS subdomain the panel gets a real certificate that renews by itself, without opening ports.
+
+Set it up now? (You can also do it later in Administration.)"
+ES[https]="Opcional: acceso seguro (HTTPS).
+
+Los navegadores solo permiten notificaciones en páginas seguras. Con un subdominio gratis de DuckDNS el panel tiene un certificado real que se renueva solo, sin abrir puertos.
+
+¿Configurarlo ahora? (También se puede después en Administración.)"
+EN[https_sub]="DuckDNS subdomain (create it free at duckdns.org). Only the part before .duckdns.org:"
+ES[https_sub]="Subdominio de DuckDNS (créalo gratis en duckdns.org). Solo la parte antes de .duckdns.org:"
+EN[https_token]="DuckDNS token (shown at the top of duckdns.org after signing in):"
+ES[https_token]="Token de DuckDNS (aparece arriba en duckdns.org al entrar):"
+EN[https_fail]="HTTPS could not be set up now. You can retry in Administration > Secure access."
+ES[https_fail]="No se pudo configurar HTTPS ahora. Puedes reintentarlo en Administración > Acceso seguro."
+EN[step_https]="Secure access (HTTPS)"
+ES[step_https]="Acceso seguro (HTTPS)"
 ES[eula]="Los servidores de Minecraft requieren aceptar el EULA de Mojang:\nhttps://aka.ms/MinecraftEULA\n\nLos servidores creados en este panel lo aceptan. ¿Lo aceptas?"
 EN[eula_no]="The EULA must be accepted to run Minecraft servers."
 ES[eula_no]="Hay que aceptar el EULA para correr servidores de Minecraft."
@@ -338,6 +356,19 @@ install_units() {
 
 if [ "$UPDATE_ONLY" -eq 1 ]; then
     [ -f "$CONFIG" ] || die "$(t no_config)"
+
+    # Programas que agregaron versiones nuevas (Almacenamiento)
+    missing=""
+    for pkg in rsync parted; do
+        command -v "$pkg" >/dev/null || missing="$missing $pkg"
+    done
+    command -v mkfs.ext4 >/dev/null || missing="$missing e2fsprogs"
+    if [ -n "$missing" ]; then
+        export DEBIAN_FRONTEND=noninteractive
+        # shellcheck disable=SC2086
+        apt-get install -y -qq $missing >/dev/null || true
+    fi
+
     install_files
     python3 "$INSTALL_DIR/panel/mcpanel_core.py" init >/dev/null
     install_units
@@ -380,6 +411,8 @@ PANEL_PORT=8090
 GAME_PORT_START=25565
 PUBLIC_HOST=""
 ACCEPT_EULA="no"
+DUCKDNS_SUBDOMAIN=""
+DUCKDNS_TOKEN=""
 ADMIN_USER=""
 ADMIN_PASSWORD=""
 
@@ -493,6 +526,11 @@ if [ "$INTERACTIVE" -eq 1 ]; then
     [ "$shown_ip" = "0.0.0.0" ] && shown_ip="$(primary_ip)"
     PUBLIC_HOST=$(ui_input "$(t address)" "$shown_ip")
 
+    if ui_yesno "$(t https)"; then
+        DUCKDNS_SUBDOMAIN=$(ui_input "$(t https_sub)" "")
+        DUCKDNS_TOKEN=$(whiptail --title "$(t title)" --passwordbox "$(t https_token)" 12 78 3>&1 1>&2 2>&3) || cancel
+    fi
+
     if ui_yesno "$(t eula)"; then
         ACCEPT_EULA="yes"
     else
@@ -597,6 +635,19 @@ trap - ERR
 panel_ip="$LISTEN_IP"
 [ "$panel_ip" = "0.0.0.0" ] && panel_ip="$(primary_ip)"
 url="http://$panel_ip:$PANEL_PORT"
+
+# HTTPS opcional: lo hace el mismo modulo que usa el panel (Administracion)
+if [ -n "$DUCKDNS_SUBDOMAIN" ] && [ -n "$DUCKDNS_TOKEN" ]; then
+    step "$(t step_https)"
+    if https_url=$(python3 "$INSTALL_DIR/panel/sysadmin/https.py" enable "$DUCKDNS_SUBDOMAIN" "$DUCKDNS_TOKEN" --game 2>/tmp/mcserver-https.err); then
+        systemctl restart mcpanel-web
+        url="${https_url%/}"
+    else
+        echo "$(t https_fail)" >&2
+        tail -3 /tmp/mcserver-https.err >&2 || true
+    fi
+    unset DUCKDNS_TOKEN
+fi
 
 [ "$INTERACTIVE" -eq 1 ] && ui_msg "$(t done)\n\n$(t done_body "$url" "$INSTALL_DIR")"
 
