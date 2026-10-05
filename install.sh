@@ -15,7 +15,7 @@
 
 set -euo pipefail
 
-VERSION="2.3.1"
+VERSION="2.3.2"
 REPO="Derpchees/mcserver"
 INSTALL_DIR="/opt/mcpanel"
 CONFIG_DIR="/etc/mcpanel"
@@ -91,6 +91,18 @@ ES[port_busy]="El puerto %s ya está en uso. Elige otro."
 EN[address]="Address players will use to connect (IP or domain, without port):"
 ES[address]="Dirección que usarán los jugadores para conectarse (IP o dominio, sin puerto):"
 EN[eula]="Minecraft servers require accepting the Mojang EULA:\nhttps://aka.ms/MinecraftEULA\n\nServers created in this panel accept it. Do you accept it?"
+EN[https_menu]="Secure access (HTTPS). Browsers only allow notifications on secure pages:"
+ES[https_menu]="Acceso seguro (HTTPS). Los navegadores solo permiten notificaciones en páginas seguras:"
+EN[https_opt_duckdns]="Free domain (DuckDNS): nothing to install on devices (recommended)"
+ES[https_opt_duckdns]="Dominio gratis (DuckDNS): nada que instalar en los dispositivos (recomendado)"
+EN[https_opt_local]="Own certificate: no outside services; each device installs it once"
+ES[https_opt_local]="Certificado propio: sin servicios externos; cada dispositivo lo instala una vez"
+EN[https_opt_no]="Not now (it can be turned on later in Admin)"
+ES[https_opt_no]="Ahora no (se puede activar después en Administración)"
+EN[https_steps]="1. Open duckdns.org and sign in with Google, GitHub or Reddit.\n2. In \"sub domain\" type a name (e.g. my-server) and press \"add domain\". Do not change the IP.\n3. Copy the token shown at the top.\n\nName (only the part before .duckdns.org):"
+ES[https_steps]="1. Abre duckdns.org y entra con Google, GitHub o Reddit.\n2. En \"sub domain\" escribe un nombre (ej. mi-servidor) y pulsa \"add domain\". No cambies la IP.\n3. Copia el token que aparece arriba.\n\nNombre (solo la parte antes de .duckdns.org):"
+EN[https_token]="Paste the DuckDNS token:"
+ES[https_token]="Pega el token de DuckDNS:"
 EN[https_ca]="HTTPS is on. On each device, open %s/ca.crt once and install the certificate (Admin > Secure access explains how)."
 ES[https_ca]="HTTPS activado. En cada dispositivo abre una vez %s/ca.crt e instala el certificado (Administración > Acceso seguro explica cómo)."
 EN[https_fail]="HTTPS could not be turned on now. You can retry in Admin > Secure access."
@@ -399,7 +411,9 @@ PANEL_PORT=8090
 GAME_PORT_START=25565
 PUBLIC_HOST=""
 ACCEPT_EULA="no"
-HTTPS="yes"
+HTTPS="local"
+DUCKDNS_SUBDOMAIN=""
+DUCKDNS_TOKEN=""
 ADMIN_USER=""
 ADMIN_PASSWORD=""
 
@@ -513,6 +527,16 @@ if [ "$INTERACTIVE" -eq 1 ]; then
     [ "$shown_ip" = "0.0.0.0" ] && shown_ip="$(primary_ip)"
     PUBLIC_HOST=$(ui_input "$(t address)" "$shown_ip")
 
+    HTTPS=$(ui_menu "$(t https_menu)" \
+        duckdns "$(t https_opt_duckdns)" \
+        local "$(t https_opt_local)" \
+        no "$(t https_opt_no)")
+
+    if [ "$HTTPS" = "duckdns" ]; then
+        DUCKDNS_SUBDOMAIN=$(ui_input "$(t https_steps)" "")
+        DUCKDNS_TOKEN=$(whiptail --title "$(t title)" --passwordbox "$(t https_token)" 12 78 3>&1 1>&2 2>&3) || cancel
+    fi
+
     if ui_yesno "$(t eula)"; then
         ACCEPT_EULA="yes"
     else
@@ -618,9 +642,25 @@ panel_ip="$LISTEN_IP"
 [ "$panel_ip" = "0.0.0.0" ] && panel_ip="$(primary_ip)"
 url="http://$panel_ip:$PANEL_PORT"
 
-# HTTPS con una CA propia del servidor (sin dominios ni servicios externos);
-# lo mismo que el boton de Administracion > Acceso seguro
-if [ "$HTTPS" = "yes" ]; then
+# HTTPS: con datos de DuckDNS, dominio gratis (lo recomendado); si no, CA
+# propia. Es lo mismo que Administracion > Acceso seguro.
+[ -n "$DUCKDNS_SUBDOMAIN" ] && [ -n "$DUCKDNS_TOKEN" ] && [ "$HTTPS" != "no" ] && HTTPS="duckdns"
+[ "$HTTPS" = "yes" ] && HTTPS="local"
+
+if [ "$HTTPS" = "duckdns" ]; then
+    step "$(t step_https)"
+    if https_url=$(python3 "$INSTALL_DIR/panel/sysadmin/duckdns.py" enable "$DUCKDNS_SUBDOMAIN" "$DUCKDNS_TOKEN" --game 2>/tmp/mcserver-https.err); then
+        systemctl restart mcpanel-web
+        url="${https_url%/}"
+    else
+        echo "$(t https_fail)" >&2
+        tail -3 /tmp/mcserver-https.err >&2 || true
+        HTTPS="local"
+    fi
+    unset DUCKDNS_TOKEN
+fi
+
+if [ "$HTTPS" = "local" ]; then
     step "$(t step_https)"
     if python3 "$INSTALL_DIR/panel/sysadmin/localca.py" enable >/dev/null 2>/tmp/mcserver-https.err; then
         systemctl restart mcpanel-web

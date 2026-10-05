@@ -31,7 +31,7 @@ Each person creates an account from the login page and, in the same step, their 
 - **Backups**: automatic and manual. Choose how often for each server, with one frequency while it is on and another while it is off (or none, since the world does not change). Players get a chat warning a minute before and when it starts and ends. The world is paused while copying so the backup stays consistent.
 - **Storage** (Admin): choose where the servers and the backups live and set aside a fixed amount of space for them, so nothing else on the disk can take it. It can create a partition in free space or on an empty disk (and another one with the rest, for example for security cameras), rebuild a disk that holds little data (its files are copied aside, checked and put back), mount an existing partition, create an LVM volume or reserve a disk file. If the backups' disk is unplugged, backups pause and resume when it comes back; if the servers' disk is missing, servers do not start.
 - **Updates** (Admin): shows the installed version and the latest on GitHub, and updates with one click. Settings, accounts, worlds and backups are kept.
-- **Secure access (HTTPS)**: on by default in new installs, or one click in Admin. Made for home networks and VPNs: the server creates its own certificate authority and certificate for its IPs, renews it by itself and keeps `http://` links working by redirecting them. Each device installs the certificate once (Admin shows how). Browsers need HTTPS for notifications.
+- **Secure access (HTTPS)** for browser notifications, in the installer or with one click in Admin. Recommended: a **free DuckDNS domain** with a Let's Encrypt certificate, with nothing to install on devices. Without a domain: the server's **own certificate** that each device installs once. Both renew by themselves and redirect `http://` links. See [HTTPS and notifications](#https-and-notifications).
 - **Sessions**: "Keep me signed in" for 30 days; sessions survive panel restarts, and My account lists every signed-in device to sign out any of them.
 - **Alerts**: one bell in the header turns on or mutes the start-up sound and browser notifications, which show each server's icon.
 - **Settings**: `server.properties` without editing files (difficulty, PvP, whitelist...), plus the server's resources and automation.
@@ -98,6 +98,31 @@ sudo python3 /opt/mcpanel/panel/mcpanel_core.py import-server \
     --name "My server" --owner admin --data-dir /path/to/world-folder \
     --type FORGE --version 1.20.1 --ram 8 --from-container old-container-name
 ```
+
+## HTTPS and notifications
+
+Browsers only allow notifications on secure pages (HTTPS). MCServer is meant for home networks and VPNs (ZeroTier, Tailscale...), so nothing is opened to the internet.
+
+### Recommended: free domain (DuckDNS)
+
+Nobody has to install anything on their phone or computer.
+
+1. Open [duckdns.org](https://www.duckdns.org) and sign in with Google, GitHub or Reddit (the buttons at the top).
+2. In **sub domain** type a name for your server (for example `my-server`) and press **add domain**. Do not change the IP: the panel sets it.
+3. Copy the **token** shown at the top of the page (a long code with dashes).
+4. In the panel: **Admin → Secure access (HTTPS)**, type the name, paste the token and press **Turn on with this domain**.
+
+In one or two minutes the panel opens by itself at `https://my-server.duckdns.org:8090`. Share that address: the certificate is from Let's Encrypt, lasts 90 days and renews by itself. The domain points to your VPN or home IP, so it only works for people already on that network.
+
+If the address does not open on some device, its network blocks names that point to private IPs: set that device's DNS to `1.1.1.1` or `8.8.8.8`.
+
+The installer offers it too (or set `DUCKDNS_SUBDOMAIN` and `DUCKDNS_TOKEN` in the answers file).
+
+### Without a domain: own certificate
+
+If you do not want any outside service, the server creates its own certificate authority and renews by itself, but **every device** has to install the certificate once: **Admin → Secure access → Download certificate** (or `http://<panel-ip>:8090/ca.crt`), with steps for Windows, Android, iPhone, Mac and Firefox.
+
+> On iPhone, Safari only allows notifications after adding the panel to the home screen (**Share → Add to Home Screen**).
 
 ## How it works
 

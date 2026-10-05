@@ -109,20 +109,49 @@ async function startUpdate(data) {
 
 
 // ------------------------------------------------------------
-// Acceso seguro (HTTPS) con la CA propia del servidor
+// Acceso seguro (HTTPS)
 // ------------------------------------------------------------
+//
+// Dos modos: dominio gratis de DuckDNS con certificado de Let's Encrypt
+// (recomendado: nadie instala nada) o CA propia del servidor (sin servicios
+// externos, pero cada dispositivo instala el certificado una vez).
+
+let httpsTimer = null;
+
 
 async function loadHttps() {
+
+    clearTimeout(httpsTimer);
+
     try {
-        renderHttps(await api("/admin/https?t=" + Date.now()));
+        const data = await api("/admin/https?t=" + Date.now());
+        renderHttps(data);
+
+        if (data.duckdns.task && data.duckdns.task.running) {
+            httpsTimer = setTimeout(loadHttps, 2000);
+        }
     } catch (error) {
         // Durante el reinicio del panel la pagina deja de responder un momento
     }
 }
 
 
+function linkRow(label, url) {
+    const row = el("div", "sys-row");
+    const link = el("a", "", url);
+    link.href = url;
+    row.append(el("span", "pl-sub", label), link);
+    return row;
+}
+
+
+function expiryRow(label, epoch) {
+    return systemRow(label, new Date(epoch * 1000).toLocaleDateString(locale(), { dateStyle: "medium" }));
+}
+
+
 function httpsGuide() {
-    // Como instalar la CA en cada sistema (una sola vez por dispositivo)
+    // Como instalar la CA propia en cada sistema (una sola vez por dispositivo)
     const guide = el("details", "https-guide");
     guide.append(el("summary", "", t("https.howInstall")));
 
@@ -136,69 +165,181 @@ function httpsGuide() {
 }
 
 
+function duckdnsForm(port) {
+
+    const wrap = el("div", "https-option");
+    wrap.append(el("div", "https-option-title", t("https.dd.title")),
+                el("div", "pl-sub", t("https.dd.desc")));
+
+    const steps = el("ol", "https-steps");
+
+    const first = el("li");
+    const duck = el("a", "", "duckdns.org");
+    duck.href = "https://www.duckdns.org";
+    duck.target = "_blank";
+    duck.rel = "noopener";
+    first.append(document.createTextNode(t("https.dd.step1a") + " "), duck,
+                 document.createTextNode(" " + t("https.dd.step1b")));
+    steps.append(first);
+
+    [2, 3, 4].forEach(function(n) {
+        steps.append(el("li", "", t("https.dd.step" + n, { port: port })));
+    });
+    wrap.append(steps);
+
+    const form = el("form", "form-grid");
+
+    const subWrap = el("label", "field");
+    const subRow = el("div", "https-row");
+    const sub = el("input", "input");
+    sub.placeholder = t("https.subPh");
+    sub.autocomplete = "off";
+    subRow.append(sub, el("span", "https-suffix", ".duckdns.org"));
+    subWrap.append(el("span", "field-label", t("https.subdomain")), subRow);
+
+    const tokWrap = el("label", "field");
+    const tok = el("input", "input");
+    tok.type = "password";
+    tok.autocomplete = "off";
+    tok.placeholder = "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx";
+    tokWrap.append(el("span", "field-label", t("https.token")), tok, el("span", "field-hint", t("https.tokenHint")));
+
+    const gameWrap = el("label", "un-check");
+    const game = el("input");
+    game.type = "checkbox";
+    game.checked = true;
+    gameWrap.append(game, document.createTextNode(" " + t("https.game")));
+
+    const submit = el("button", "btn btn-start btn-small", t("https.dd.enable"));
+    submit.type = "submit";
+    const actions = el("div", "sto-actions");
+    actions.append(submit);
+
+    form.append(subWrap, tokWrap, gameWrap, actions);
+    form.onsubmit = async function(event) {
+        event.preventDefault();
+        submit.disabled = true;
+
+        try {
+            await postJson("/admin/https/duckdns", {
+                subdomain: sub.value.trim(), token: tok.value.trim(), game_address: game.checked
+            });
+            tok.value = "";
+            loadHttps();
+        } catch (error) {
+            showToast(error.message, "red");
+            submit.disabled = false;
+        }
+    };
+
+    wrap.append(form, el("div", "sto-note", t("https.dd.dnsTip")));
+    return wrap;
+}
+
+
 function renderHttps(data) {
 
     const box = $("admHttps");
     box.textContent = "";
 
+    const dd = data.duckdns;
+    const local = data.local;
+    const task = dd.task || {};
+
     box.append(el("div", "sto-note", t("https.why")));
 
-    if (data.enabled) {
-        box.append(systemRow(t("https.state"), t(data.running ? "https.on" : "https.starting")));
-
-        data.ips.filter(function(ip) { return ip !== "127.0.0.1"; }).forEach(function(ip) {
-            const url = "https://" + ip + ":" + data.port + "/";
-            const link = el("a", "", url);
-            link.href = url;
-            const row = el("div", "sys-row");
-            row.append(el("span", "pl-sub", t("https.address")), link);
-            box.append(row);
-        });
-
-        if (data.expires) {
-            box.append(systemRow(t("https.expires"),
-                new Date(data.expires * 1000).toLocaleDateString(locale(), { dateStyle: "medium" })));
-        }
-
-        box.append(el("div", "sto-note", t("https.renews")));
-    } else {
-        box.append(el("div", "sto-note", t("https.offDesc")));
+    if (task.running) {
+        box.append(el("div", "sto-job-title", t("https.working")));
+        box.append(el("div", "pl-sub", t("https.step." + task.step, task.vars || {}) || task.step));
+        const bar = el("div", "sto-bar busy");
+        bar.append(el("span"));
+        box.append(bar);
+        return;
     }
 
-    // Instalar la CA: se puede siempre que exista, aunque HTTPS este apagado
-    if (data.ca_available) {
+    if (task.error) box.append(el("div", "sto-note is-red", t("https.failed", { msg: task.error })));
+
+    // Dominio gratis activo
+    if (data.mode === "duckdns" && dd.domain) {
+        const url = "https://" + dd.domain + ":" + dd.port + "/";
+        box.append(systemRow(t("https.state"), t("https.onDomain")));
+        box.append(linkRow(t("https.address"), url));
+        if (dd.expires) box.append(expiryRow(t("https.expires"), dd.expires));
+        box.append(el("div", "sto-note is-green", t("https.dd.share")));
+
+        // Recien activado: se pasa a la direccion con el dominio
+        if (location.hostname !== dd.domain && task.finished && Date.now() / 1000 - task.finished < 120) {
+            box.append(el("div", "sto-note", t("https.opening")));
+            setTimeout(function() { location.href = url + location.hash; }, 6000);
+        }
+
+        if (isSystemOwner()) box.append(httpsOffButton());
+        return;
+    }
+
+    // Certificado propio activo
+    if (data.mode === "local") {
+        box.append(systemRow(t("https.state"), t("https.onLocal")));
+        local.ips.filter(function(ip) { return ip !== "127.0.0.1"; }).forEach(function(ip) {
+            box.append(linkRow(t("https.address"), "https://" + ip + ":" + local.port + "/"));
+        });
+        if (local.expires) box.append(expiryRow(t("https.expires"), local.expires));
+        box.append(el("div", "sto-note", t("https.renews")));
+
         const ca = el("div", "sto-note https-ca");
         ca.append(el("b", "", t("https.caTitle")), el("div", "", t("https.caDesc")));
         box.append(ca);
-    }
 
-    const actions = el("div", "sto-actions");
-
-    if (data.ca_available) {
+        const actions = el("div", "sto-actions");
         const download = el("a", "btn btn-start btn-small", t("https.download"));
         download.href = "/ca.crt";
         download.setAttribute("download", "mcserver-ca.crt");
         actions.append(download);
+        if (isSystemOwner()) actions.append(httpsOffButton(true));
+        box.append(actions, httpsGuide());
+
+        if (isSystemOwner()) {
+            const change = el("details", "https-guide");
+            change.append(el("summary", "", t("https.switchDomain")), duckdnsForm(local.port));
+            box.append(change);
+        }
+        return;
     }
 
-    if (isSystemOwner()) {
-        const toggle = el("button", "btn btn-ghost btn-small", t(data.enabled ? "https.disable" : "https.enable"));
-        toggle.onclick = data.enabled ? disableHttps : enableHttps;
-        if (!data.enabled) toggle.className = "btn btn-start btn-small";
-        actions.append(toggle);
-    } else if (!data.enabled) {
+    // Desactivado: las dos opciones
+    box.append(el("div", "sto-note", t("https.offDesc")));
+
+    if (!isSystemOwner()) {
         box.append(el("div", "pl-sub", t("sto.ownerOnly")));
+        return;
     }
 
-    box.append(actions);
+    box.append(duckdnsForm(local.port));
 
-    if (data.ca_available) box.append(httpsGuide());
+    const other = el("div", "https-option");
+    other.append(el("div", "https-option-title", t("https.local.title")), el("div", "pl-sub", t("https.local.desc")));
+    const localBtn = el("button", "btn btn-ghost btn-small", t("https.local.enable"));
+    localBtn.onclick = enableLocalHttps;
+    const actions = el("div", "sto-actions");
+    actions.append(localBtn);
+    other.append(actions);
+    box.append(other);
 }
 
 
-async function enableHttps() {
+function httpsOffButton(bare) {
+    const off = el("button", "btn btn-ghost btn-small", t("https.disable"));
+    off.onclick = disableHttps;
+    if (bare) return off;
+    const actions = el("div", "sto-actions");
+    actions.append(off);
+    return actions;
+}
+
+
+async function enableLocalHttps() {
     try {
-        await postJson("/admin/https/enable", {});
+        await postJson("/admin/https/local", {});
         showToast(t("https.enabled"), "green");
         // El panel se reinicia con HTTPS: se abre la direccion segura
         setTimeout(function() { location.href = "https://" + location.host + location.pathname + location.hash; }, 6000);
@@ -216,7 +357,7 @@ async function disableHttps() {
     try {
         await postJson("/admin/https/disable", {});
         showToast(t("https.disabled"), "amber");
-        setTimeout(function() { location.href = "http://" + location.host + location.pathname + location.hash; }, 6000);
+        setTimeout(function() { location.href = "http://" + location.hostname + ":" + location.port + location.pathname + location.hash; }, 6000);
     } catch (error) {
         showToast(error.message, "red");
     }

@@ -164,7 +164,10 @@ class Handler(BaseHTTPRequestHandler):
         if not core.tls_enabled() or isinstance(self.connection, ssl.SSLSocket) or path == "/ca.crt":
             return False
 
-        host = self.headers.get("Host") or "%s:%d" % (core.PANEL_BIND, core.PANEL_PORT)
+        # Con dominio, a su nombre (el certificado es del dominio, no de la IP)
+        domain = core.live_cfg("PANEL_DOMAIN", "") if core.live_cfg("TLS_MODE", "") == "duckdns" else ""
+        host = ("%s:%d" % (domain, core.PANEL_PORT) if domain
+                else self.headers.get("Host") or "%s:%d" % (core.PANEL_BIND, core.PANEL_PORT))
         self.send_response(301 if self.command == "GET" else 308)
         self.send_header("Location", "https://" + host + self.path)
         self.send_header("Content-Length", "0")

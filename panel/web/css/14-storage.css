@@ -271,3 +271,30 @@
     border-top: 1px solid var(--border);
     font-size: 13px;
 }
+
+.https-option {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 14px 16px;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: var(--surface-2);
+}
+
+.https-option-title {
+    font-weight: 700;
+}
+
+.https-steps {
+    margin: 4px 0 4px 18px;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    font-size: 14px;
+}
+
+.https-steps a {
+    color: var(--green);
+}

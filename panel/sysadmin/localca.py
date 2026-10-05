@@ -2,6 +2,9 @@
 #
 # MCServer by Derpchees - acceso seguro (HTTPS) con una CA propia
 #
+# Para quien no quiere ningun servicio externo. La opcion mas facil (sin
+# instalar nada en los dispositivos) es duckdns.py.
+#
 # Los navegadores solo permiten cosas como las notificaciones en paginas
 # seguras. Sin dominios ni servicios externos, el servidor crea su propia
 # autoridad de certificados (CA) y con ella el certificado del panel:
@@ -170,18 +173,19 @@ def enable():
     if needs_renewal():
         create_cert()
 
-    core.set_config({"TLS_CERT": CERT, "TLS_KEY": KEY})
+    core.set_config({"TLS_MODE": "local", "TLS_CERT": CERT, "TLS_KEY": KEY, "PANEL_DOMAIN": ""})
     return status()
 
 
 def disable():
     # La CA se conserva: si se vuelve a activar, los dispositivos ya la tienen
-    core.set_config({"TLS_CERT": "", "TLS_KEY": ""})
+    core.set_config({"TLS_MODE": "", "TLS_CERT": "", "TLS_KEY": ""})
 
 
 def renew_if_needed():
     # Lo llama el agente cada dia. True si hubo que renovar (y reiniciar el panel)
-    if not core.live_cfg("TLS_CERT", "") or not os.path.isfile(CA_KEY):
+    # Solo el modo "local": el certificado de Let's Encrypt lo renueva acme.sh
+    if core.live_cfg("TLS_MODE", "") != "local" or not os.path.isfile(CA_KEY):
         return False
 
     if not needs_renewal():
@@ -194,11 +198,11 @@ def renew_if_needed():
 def status():
     cert = cert_info(CERT)
     ca = cert_info(CA_CERT)
-    active = bool(core.live_cfg("TLS_CERT", ""))
+    active = core.live_cfg("TLS_MODE", "") == "local"
 
     return {
         "enabled": active,
-        "running": core.tls_enabled(),
+        "running": active and core.tls_enabled(),
         "port": core.PANEL_PORT,
         "ips": cert["ips"] if cert else host_ips(),
         "names": cert["names"] if cert else host_names(),

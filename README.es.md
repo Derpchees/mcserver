@@ -31,7 +31,7 @@ Cada persona crea su cuenta desde la pantalla de entrar y, en el mismo paso, su 
 - **Respaldos**: automáticos y manuales. Eliges cada cuánto para cada servidor, con una frecuencia cuando está encendido y otra cuando está apagado (o ninguna, porque el mundo no cambia). Los jugadores reciben un aviso en el chat un minuto antes, al empezar y al terminar. El mundo se pausa mientras se copia para que el respaldo quede consistente.
 - **Almacenamiento** (Administración): elige dónde viven los servidores y los respaldos, y reserva una cantidad fija de espacio para ellos, para que nada más en el disco pueda ocuparlo. Puede crear una partición en espacio libre o en un disco vacío (y otra con el resto, por ejemplo para cámaras de seguridad), rehacer un disco con pocos datos (sus archivos se copian aparte, se verifican y se devuelven), montar una partición existente, crear un volumen LVM o reservar un archivo de disco. Si se desconecta el disco de respaldos, los respaldos se pausan y se reanudan cuando vuelve; si falta el disco de los servidores, no se encienden.
 - **Actualizaciones** (Administración): muestra la versión instalada y la última en GitHub, y actualiza con un clic. Se conservan la configuración, las cuentas, los mundos y los respaldos.
-- **Acceso seguro (HTTPS)**: activado por defecto en instalaciones nuevas, o con un clic en Administración. Pensado para redes de casa y VPN: el servidor crea su propia autoridad de certificados y el certificado para sus IP, lo renueva solo y redirige los enlaces `http://`. Cada dispositivo instala el certificado una vez (Administración explica cómo). Los navegadores exigen HTTPS para las notificaciones.
+- **Acceso seguro (HTTPS)** para las notificaciones del navegador, en el instalador o con un clic en Administración. Recomendado: un **dominio gratis de DuckDNS** con certificado de Let's Encrypt, sin instalar nada en los dispositivos. Sin dominio: un **certificado propio** del servidor que cada dispositivo instala una vez. Los dos se renuevan solos y redirigen los enlaces `http://`. Ver [HTTPS y notificaciones](#https-y-notificaciones).
 - **Sesiones**: "Mantener la sesión iniciada" por 30 días; las sesiones sobreviven a los reinicios del panel, y en Mi cuenta se ven todos los dispositivos con sesión para cerrar cualquiera.
 - **Avisos**: una campana en el encabezado activa o silencia el sonido al encenderse un servidor y las notificaciones del navegador, que muestran el icono de cada servidor.
 - **Ajustes**: `server.properties` sin editar archivos (dificultad, PvP, lista blanca...), además de los recursos y la automatización del servidor.
@@ -98,6 +98,31 @@ sudo python3 /opt/mcpanel/panel/mcpanel_core.py import-server \
     --name "Mi servidor" --owner admin --data-dir /ruta/a/la-carpeta-del-mundo \
     --type FORGE --version 1.20.1 --ram 8 --from-container nombre-del-contenedor-viejo
 ```
+
+## HTTPS y notificaciones
+
+Los navegadores solo permiten notificaciones en páginas seguras (HTTPS). MCServer está pensado para redes de casa o VPN (ZeroTier, Tailscale...), así que no se abre nada a internet.
+
+### Opción recomendada: dominio gratis (DuckDNS)
+
+Nadie tiene que instalar nada en su celular o computadora.
+
+1. Abre [duckdns.org](https://www.duckdns.org) y entra con Google, GitHub o Reddit (los botones de arriba).
+2. En **sub domain** escribe un nombre para tu servidor (por ejemplo `mi-servidor`) y pulsa **add domain**. No cambies la IP: el panel la pone sola.
+3. Copia el **token** que aparece arriba en la página (un código largo con guiones).
+4. En el panel: **Administración → Acceso seguro (HTTPS)**, escribe el nombre, pega el token y pulsa **Activar con este dominio**.
+
+En uno o dos minutos el panel se abre solo en `https://mi-servidor.duckdns.org:8090`. Comparte esa dirección: el certificado es de Let's Encrypt, dura 90 días y se renueva solo. El dominio apunta a la IP de tu VPN o de tu casa, así que solo funciona para quien ya está en esa red.
+
+Si la dirección no abre en algún dispositivo, su red bloquea nombres que apuntan a IP privadas: cambia el DNS de ese dispositivo a `1.1.1.1` u `8.8.8.8`.
+
+En el instalador también puedes elegirlo (o poner `DUCKDNS_SUBDOMAIN` y `DUCKDNS_TOKEN` en el archivo de respuestas).
+
+### Sin dominio: certificado propio
+
+Si no quieres ningún servicio externo, el servidor crea su propia autoridad de certificados y se renueva solo, pero **cada dispositivo** tiene que instalar el certificado una vez: **Administración → Acceso seguro → Descargar certificado** (o `http://<ip-del-panel>:8090/ca.crt`), con instrucciones para Windows, Android, iPhone, Mac y Firefox.
+
+> En iPhone, Safari solo permite notificaciones si agregas el panel a la pantalla de inicio (**Compartir → Agregar a inicio**).
 
 ## Cómo funciona
 
