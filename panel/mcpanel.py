@@ -14,6 +14,7 @@
 
 from http.server import ThreadingHTTPServer
 import os
+import socket
 import ssl
 import sys
 import threading
@@ -33,17 +34,52 @@ threading.Thread(target=stats_loop, daemon=True).start()
 threading.Thread(target=slow_stats_loop, daemon=True).start()
 threading.Thread(target=timeout_loop, daemon=True).start()
 
-server = ThreadingHTTPServer((BIND, PORT), Handler)
+class PanelServer(ThreadingHTTPServer):
+    # Con HTTPS activo, el mismo puerto atiende las dos cosas: si la conexion
+    # empieza con un saludo TLS se cifra; si es HTTP normal, el manejador la
+    # redirige a https:// (asi siguen sirviendo los enlaces viejos). Todo se
+    # hace en el hilo de cada conexion, para que un cliente lento no frene
+    # a los demas.
+
+    tls = None
+
+    def finish_request(self, request, client_address):
+        secure = None
+
+        if self.tls:
+            try:
+                request.settimeout(15)
+                first = request.recv(1, socket.MSG_PEEK)
+            except OSError:
+                return
+
+            if first == b"":
+                try:
+                    secure = self.tls.wrap_socket(request, server_side=True)
+                except (ssl.SSLError, OSError):
+                    return
+
+            (secure or request).settimeout(None)
+
+        try:
+            self.RequestHandlerClass(secure or request, client_address, self)
+        finally:
+            if secure:
+                try:
+                    secure.close()
+                except OSError:
+                    pass
+
+
+server = PanelServer((BIND, PORT), Handler)
 
 # Con certificado el panel habla HTTPS (los navegadores lo exigen, por
-# ejemplo, para las notificaciones). El saludo TLS se hace en el hilo de
-# cada conexion, no en el que acepta, para que un cliente lento no frene a
-# los demas.
+# ejemplo, para las notificaciones). Ver sysadmin/localca.py.
 if core.tls_enabled():
     context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
     context.minimum_version = ssl.TLSVersion.TLSv1_2
     context.load_cert_chain(core.TLS_CERT, core.TLS_KEY)
-    server.socket = context.wrap_socket(server.socket, server_side=True, do_handshake_on_connect=False)
+    server.tls = context
 
 print("MCServer panel escuchando en %s://%s:%d" % ("https" if core.tls_enabled() else "http", BIND, PORT), flush=True)
 server.serve_forever()

@@ -25,6 +25,7 @@ import mcpanel_core as core  # noqa: E402
 import announce  # noqa: E402
 import backup_schedule  # noqa: E402
 from storage import watch  # noqa: E402
+from sysadmin import localca  # noqa: E402
 
 
 CHECK_INTERVAL = 10
@@ -454,6 +455,7 @@ async def main():
     monitor = Monitor()
     last_system = 0
     last_backup_check = 0
+    last_cert_check = 0
 
     while True:
         try:
@@ -477,6 +479,15 @@ async def main():
             if time.time() - last_backup_check >= 30:
                 last_backup_check = time.time()
                 await schedule_backups(servers, monitor.last_status, monitor.last_health)
+
+            # Certificado del panel (HTTPS): se renueva solo antes de vencer
+            # o si el equipo tiene una IP nueva
+            if time.time() - last_cert_check >= 86400:
+                last_cert_check = time.time()
+                renewed = await asyncio.get_running_loop().run_in_executor(None, localca.renew_if_needed)
+
+                if renewed:
+                    await run("systemctl", "restart", "mcpanel-web")
 
             if time.time() - last_system >= 60:
                 last_system = time.time()

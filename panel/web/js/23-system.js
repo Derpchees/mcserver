@@ -2,7 +2,6 @@
 // Administracion: actualizaciones y acceso seguro (HTTPS)
 // ============================================================
 
-let httpsTimer = null;
 let updateTimer = null;
 
 
@@ -110,23 +109,30 @@ async function startUpdate(data) {
 
 
 // ------------------------------------------------------------
-// Acceso seguro (HTTPS)
+// Acceso seguro (HTTPS) con la CA propia del servidor
 // ------------------------------------------------------------
 
 async function loadHttps() {
-
-    clearTimeout(httpsTimer);
-
     try {
-        const data = await api("/admin/https?t=" + Date.now());
-        renderHttps(data);
-
-        if (data.task && data.task.running) {
-            httpsTimer = setTimeout(loadHttps, 2000);
-        }
+        renderHttps(await api("/admin/https?t=" + Date.now()));
     } catch (error) {
-        // Durante el reinicio con HTTPS esta pagina (http) deja de responder
+        // Durante el reinicio del panel la pagina deja de responder un momento
     }
+}
+
+
+function httpsGuide() {
+    // Como instalar la CA en cada sistema (una sola vez por dispositivo)
+    const guide = el("details", "https-guide");
+    guide.append(el("summary", "", t("https.howInstall")));
+
+    ["windows", "android", "ios", "mac", "linux"].forEach(function(os) {
+        const item = el("div", "https-os");
+        item.append(el("b", "", t("https.os." + os)), el("div", "pl-sub", t("https.guide." + os)));
+        guide.append(item);
+    });
+
+    return guide;
 }
 
 
@@ -134,26 +140,20 @@ function renderHttps(data) {
 
     const box = $("admHttps");
     box.textContent = "";
-    const task = data.task || {};
 
-    if (task.running) {
-        box.append(el("div", "sto-job-title", t("https.working")));
-        box.append(el("div", "pl-sub", t("https.step." + task.step, task.vars || {}) || task.step));
-        const bar = el("div", "sto-bar busy");
-        bar.append(el("span"));
-        box.append(bar);
-        return;
-    }
+    box.append(el("div", "sto-note", t("https.why")));
 
-    if (task.error) box.append(el("div", "sto-note is-red", t("https.failed", { msg: task.error })));
+    if (data.enabled) {
+        box.append(systemRow(t("https.state"), t(data.running ? "https.on" : "https.starting")));
 
-    if (data.enabled && data.domain) {
-        const url = "https://" + data.domain + ":" + data.port + "/";
-        const link = el("a", "", url);
-        link.href = url;
-        const row = el("div", "sys-row");
-        row.append(el("span", "pl-sub", t("https.address")), link);
-        box.append(row);
+        data.ips.filter(function(ip) { return ip !== "127.0.0.1"; }).forEach(function(ip) {
+            const url = "https://" + ip + ":" + data.port + "/";
+            const link = el("a", "", url);
+            link.href = url;
+            const row = el("div", "sys-row");
+            row.append(el("span", "pl-sub", t("https.address")), link);
+            box.append(row);
+        });
 
         if (data.expires) {
             box.append(systemRow(t("https.expires"),
@@ -161,86 +161,50 @@ function renderHttps(data) {
         }
 
         box.append(el("div", "sto-note", t("https.renews")));
-
-        // Recien activado: si esta pagina sigue en http, se pasa a la direccion segura
-        if (location.protocol === "http:" && task.finished && Date.now() / 1000 - task.finished < 120) {
-            box.append(el("div", "sto-note is-green", t("https.opening")));
-            setTimeout(function() { location.href = url; }, 6000);
-        }
-
-        if (isSystemOwner()) {
-            const off = el("button", "btn btn-ghost btn-small", t("https.disable"));
-            off.onclick = disableHttps;
-            const actions = el("div", "sto-actions");
-            actions.append(off);
-            box.append(actions);
-        }
-        return;
+    } else {
+        box.append(el("div", "sto-note", t("https.offDesc")));
     }
 
-    box.append(el("div", "sto-note", t("https.why")));
-
-    if (!isSystemOwner()) {
-        box.append(el("div", "pl-sub", t("sto.ownerOnly")));
-        return;
+    // Instalar la CA: se puede siempre que exista, aunque HTTPS este apagado
+    if (data.ca_available) {
+        const ca = el("div", "sto-note https-ca");
+        ca.append(el("b", "", t("https.caTitle")), el("div", "", t("https.caDesc")));
+        box.append(ca);
     }
-
-    const help = el("div", "sto-note");
-    help.append(document.createTextNode(t("https.how") + " "));
-    const duck = el("a", "", "duckdns.org");
-    duck.href = "https://www.duckdns.org";
-    duck.target = "_blank";
-    duck.rel = "noopener";
-    help.append(duck);
-    box.append(help);
-
-    const form = el("form", "form-grid");
-
-    const subWrap = el("label", "field");
-    const subRow = el("div", "https-row");
-    const sub = el("input", "input");
-    sub.placeholder = t("https.subPh");
-    sub.autocomplete = "off";
-    subRow.append(sub, el("span", "https-suffix", ".duckdns.org"));
-    subWrap.append(el("span", "field-label", t("https.subdomain")), subRow);
-
-    const tokWrap = el("label", "field");
-    const tok = el("input", "input");
-    tok.type = "password";
-    tok.autocomplete = "off";
-    tok.placeholder = "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx";
-    tokWrap.append(el("span", "field-label", t("https.token")), tok,
-        el("span", "field-hint", t("https.tokenHint")));
-
-    const gameWrap = el("label", "un-check");
-    const game = el("input");
-    game.type = "checkbox";
-    game.checked = true;
-    gameWrap.append(game, document.createTextNode(" " + t("https.game")));
-
-    const submit = el("button", "btn btn-start btn-small", t("https.enable"));
-    submit.type = "submit";
 
     const actions = el("div", "sto-actions");
-    actions.append(submit);
-    form.append(subWrap, tokWrap, gameWrap, actions);
-    form.onsubmit = async function(event) {
-        event.preventDefault();
-        submit.disabled = true;
 
-        try {
-            await postJson("/admin/https/enable", {
-                subdomain: sub.value.trim(), token: tok.value.trim(), game_address: game.checked
-            });
-            tok.value = "";
-            loadHttps();
-        } catch (error) {
-            showToast(error.message, "red");
-            submit.disabled = false;
-        }
-    };
+    if (data.ca_available) {
+        const download = el("a", "btn btn-start btn-small", t("https.download"));
+        download.href = "/ca.crt";
+        download.setAttribute("download", "mcserver-ca.crt");
+        actions.append(download);
+    }
 
-    box.append(form);
+    if (isSystemOwner()) {
+        const toggle = el("button", "btn btn-ghost btn-small", t(data.enabled ? "https.disable" : "https.enable"));
+        toggle.onclick = data.enabled ? disableHttps : enableHttps;
+        if (!data.enabled) toggle.className = "btn btn-start btn-small";
+        actions.append(toggle);
+    } else if (!data.enabled) {
+        box.append(el("div", "pl-sub", t("sto.ownerOnly")));
+    }
+
+    box.append(actions);
+
+    if (data.ca_available) box.append(httpsGuide());
+}
+
+
+async function enableHttps() {
+    try {
+        await postJson("/admin/https/enable", {});
+        showToast(t("https.enabled"), "green");
+        // El panel se reinicia con HTTPS: se abre la direccion segura
+        setTimeout(function() { location.href = "https://" + location.host + location.pathname + location.hash; }, 6000);
+    } catch (error) {
+        showToast(error.message, "red");
+    }
 }
 
 
@@ -252,8 +216,7 @@ async function disableHttps() {
     try {
         await postJson("/admin/https/disable", {});
         showToast(t("https.disabled"), "amber");
-        const url = "http://" + location.hostname + ":" + location.port + "/";
-        setTimeout(function() { location.href = url; }, 5000);
+        setTimeout(function() { location.href = "http://" + location.host + location.pathname + location.hash; }, 6000);
     } catch (error) {
         showToast(error.message, "red");
     }

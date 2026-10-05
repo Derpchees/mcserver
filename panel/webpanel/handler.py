@@ -8,6 +8,7 @@ import os
 import re
 import time
 import shutil
+import ssl
 import urllib.parse
 import http.cookies
 
@@ -51,6 +52,7 @@ from .mods import (
 from .mod_versions import modpack_versions, project_versions, set_modpack_version, set_project_version
 from .storage_admin import data_disk_ready, storage_action, storage_get, storage_options_for
 from .system_admin import system_action, system_get
+from sysadmin import localca
 from .webassets import web
 
 
@@ -156,9 +158,45 @@ class Handler(BaseHTTPRequestHandler):
     # GET
     # ========================================================
 
+    def plain_http(self, path):
+        # Con HTTPS activo, una conexion http:// se manda a https:// (salvo la
+        # CA, que un dispositivo puede necesitar antes de confiar en el panel)
+        if not core.tls_enabled() or isinstance(self.connection, ssl.SSLSocket) or path == "/ca.crt":
+            return False
+
+        host = self.headers.get("Host") or "%s:%d" % (core.PANEL_BIND, core.PANEL_PORT)
+        self.send_response(301 if self.command == "GET" else 308)
+        self.send_header("Location", "https://" + host + self.path)
+        self.send_header("Content-Length", "0")
+        self.end_headers()
+        return True
+
+
+    def send_ca(self):
+        if not localca.status()["ca_available"]:
+            self.send_json({"ok": False, "message": "No encontrado"}, 404)
+            return
+
+        data = localca.ca_bytes()
+        self.send_response(200)
+        self.send_header("Content-Type", "application/x-x509-ca-cert")
+        self.send_header("Content-Disposition", 'attachment; filename="mcserver-ca.crt"')
+        self.send_header("Content-Length", str(len(data)))
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        self.wfile.write(data)
+
+
     def do_GET(self):
 
         path, param = self.route()
+
+        if self.plain_http(path):
+            return
+
+        if path == "/ca.crt":
+            return self.send_ca()
+
         user = session_user(self.session_token(), self.client_address[0])
         use_server(None)
 
@@ -357,6 +395,10 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
 
         path, param = self.route()
+
+        if self.plain_http(path):
+            return
+
         user = session_user(self.session_token(), self.client_address[0])
         use_server(None)
 

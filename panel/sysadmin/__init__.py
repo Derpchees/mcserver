@@ -6,6 +6,6 @@
 # persona tenga que abrir una terminal:
 #
 #   tasks.py   tareas en segundo plano (una por tipo) con su avance
-#   https.py   acceso seguro: subdominio de DuckDNS + certificado de Let's Encrypt
+#   localca.py acceso seguro (HTTPS) con una CA propia del servidor
 #   update.py  buscar e instalar versiones nuevas desde GitHub
 #
