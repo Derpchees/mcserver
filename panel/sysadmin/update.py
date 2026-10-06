@@ -16,6 +16,7 @@ import urllib.request
 import mcpanel_core as core
 
 from sysadmin import tasks
+from bedrock import console as bedrock_console
 
 REPO = "Derpchees/mcserver"
 BRANCH = "main"
@@ -60,6 +61,10 @@ def players_online():
 
     for srv in core.list_servers():
         if core.container_state(srv)[0] != "running":
+            continue
+
+        if core.is_bedrock(srv):
+            total += bedrock_console.player_count(srv.internal_port) or 0
             continue
 
         result = core.docker("exec", srv.container, "rcon-cli", "list")

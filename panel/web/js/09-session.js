@@ -92,7 +92,8 @@ function enterTab() {
     if (!authorized) return;
 
     if (activeTab === "mods") {
-        loadMods();
+        if (isBedrockServer()) loadAddons();
+        else loadMods();
     } else if (activeTab === "files") {
         filesReady = true;
         $("filesArea").hidden = false;

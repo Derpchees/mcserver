@@ -50,6 +50,9 @@ from .mods import (
     add_mods, cf_search, clear_modpack, MOD_KIND, modrinth_search, mods_state, remove_mods,
     set_modpack,
 )
+from .addons import (
+    addon_icon, addons_state, cf_addon_search, cf_install, remove_addon, toggle_addon, upload_addon,
+)
 from .mod_versions import modpack_versions, project_versions, set_modpack_version, set_project_version
 from .storage_admin import data_disk_ready, storage_action, storage_get, storage_options_for
 from .system_admin import system_action, system_get
@@ -343,8 +346,21 @@ class Handler(BaseHTTPRequestHandler):
         if not manage:
             return self.deny(user)
 
+        # Bedrock no tiene mods: usa add-ons
+        if core.is_bedrock(srv) and path.startswith(("/mods", "/server/modpack")):
+            raise FileError("Los servidores Bedrock usan add-ons, no mods")
+
         if path == "/chat":
             self.send_json(chat_history())
+
+        elif path == "/addons":
+            self.send_json(addons_state())
+
+        elif path == "/addons/icon":
+            self.send_body(addon_icon(param("uuid")), "image/png")
+
+        elif path == "/addons/search":
+            self.send_json(cf_addon_search(param("kind"), param("q")))
 
         elif path == "/console":
             self.send_body(console().encode("utf-8"), "text/plain; charset=utf-8")
@@ -593,6 +609,9 @@ class Handler(BaseHTTPRequestHandler):
         if not manage:
             return self.deny(user)
 
+        if core.is_bedrock(srv) and path.startswith(("/mods", "/server/modpack")) and path != "/mods/apply":
+            raise FileError("Los servidores Bedrock usan add-ons, no mods")
+
         if path == "/command":
             body = self.read_body().decode("utf-8", errors="replace")
             command_text = urllib.parse.parse_qs(body).get("command", [""])[0]
@@ -613,6 +632,19 @@ class Handler(BaseHTTPRequestHandler):
 
         elif path == "/server/icon":
             self.send_json(set_server_icon(srv, self.json_body(4096), user))
+
+        elif path == "/addons/upload":
+            length = int(self.headers.get("Content-Length", "0") or 0)
+            self.send_json(upload_addon(self, param("name"), length, user))
+
+        elif path == "/addons/toggle":
+            self.send_json(toggle_addon(self.json_body(4096), user))
+
+        elif path == "/addons/remove":
+            self.send_json(remove_addon(self.json_body(), user))
+
+        elif path == "/addons/install":
+            self.send_json(cf_install(self.json_body(4096), user))
 
         elif path == "/mods/add":
             self.send_json(add_mods(self.json_body(), user))

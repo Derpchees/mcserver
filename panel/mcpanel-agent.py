@@ -5,6 +5,7 @@
 #
 # Un solo proceso para todos los servidores:
 #   - proxy: escucha el puerto de cada servidor y lo enciende al conectarse
+#     (Bedrock tambien: su conexion empieza por HTTP, ver bedrock/signaling.py)
 #   - apagado automatico cuando no hay jugadores
 #   - respaldos programados
 #   - eventos para las notificaciones (encendido, apagado, caidas, alertas)
@@ -28,6 +29,9 @@ import backup_schedule  # noqa: E402
 from storage import watch  # noqa: E402
 from sysadmin import localca  # noqa: E402
 from push import sender as push_sender  # noqa: E402
+from bedrock import console as bedrock_console  # noqa: E402
+from bedrock import firstboot as bedrock_firstboot  # noqa: E402
+from bedrock import signaling  # noqa: E402
 
 
 CHECK_INTERVAL = 10
@@ -155,6 +159,22 @@ class Proxy:
             return
 
         status, _, _ = await inspect(srv)
+        head = b""
+
+        # Bedrock: la consulta de la lista se contesta sin encenderlo
+        if core.is_bedrock(srv):
+            try:
+                head = await signaling.read_head(reader, 10)
+            except (OSError, asyncio.TimeoutError):
+                writer.close()
+                return
+
+            if status != "running" and signaling.is_status_request(head):
+                writer.write(signaling.offline_response(srv, "off" if watch.data_ready() else "nodisk"))
+                await writer.drain()
+                writer.close()
+                return
+
         log(srv, "proxy.log", "PETICION RECIBIDA | Minecraft estaba: " + status)
 
         if status != "running" and not watch.data_ready():
@@ -171,7 +191,13 @@ class Proxy:
                 # termine de arrancar: se espera a la comprobacion de salud
                 # de la imagen (o al puerto, si no la tiene)
                 _, health, _ = await inspect(srv)
-                ready = await port_open(srv.internal_port) if health == "no-health" else health == "healthy"
+
+                if core.is_bedrock(srv):
+                    # Listo cuando contesta (antes que la comprobacion de salud de Docker)
+                    loop = asyncio.get_running_loop()
+                    ready = await loop.run_in_executor(None, signaling.status, srv.internal_port, 1.0) is not None
+                else:
+                    ready = await port_open(srv.internal_port) if health == "no-health" else health == "healthy"
 
                 if ready:
                     log(srv, "proxy.log", "MINECRAFT DISPONIBLE | espera=%ds" % (i + 1))
@@ -189,6 +215,11 @@ class Proxy:
         except OSError:
             writer.close()
             return
+
+        # Lo que ya se leyo del cliente (Bedrock) va primero
+        if head:
+            up_writer.write(head)
+            await up_writer.drain()
 
         async def pipe(src, dst):
             try:
@@ -237,6 +268,9 @@ class Monitor:
             pass
 
     async def players(self, srv):
+        if core.is_bedrock(srv):
+            return await asyncio.get_running_loop().run_in_executor(None, self.bedrock_players, srv)
+
         code, out, _ = await run("docker", "exec", srv.container, "rcon-cli", "list")
 
         if code != 0:
@@ -255,6 +289,23 @@ class Monitor:
             names = [n for n in names if re.match(r"^\w{1,16}$", n)]
 
         return int(m.group(1)), names
+
+    @staticmethod
+    def bedrock_players(srv):
+        # Cuantos segun su estado (se guarda para la lista con el servidor
+        # apagado); los nombres del log solo si hay alguien
+        data = signaling.status(srv.internal_port)
+
+        if data is None:
+            return None, []
+
+        signaling.remember(srv, data)
+        count = int(data.get("players") or 0)
+
+        if not count:
+            return count, []
+
+        return count, sorted(bedrock_console.online_names(srv.container))[:count]
 
     async def check(self, srv):
         status, health, exit_code = await inspect(srv)
@@ -283,6 +334,11 @@ class Monitor:
             # No se anuncia el estado que ya tenia al arrancar el agente
             if previous is not None:
                 core.add_event(srv.id, "server_started", "success", "")
+
+            # Bedrock nuevo: se abre la lista de permitidos (viene activada y vacia)
+            if core.is_bedrock(srv):
+                await asyncio.get_running_loop().run_in_executor(
+                    None, bedrock_firstboot.run, srv, core.MC_UID, core.MC_GID)
 
         if status != "running":
             self.idle_since.pop(srv.id, None)

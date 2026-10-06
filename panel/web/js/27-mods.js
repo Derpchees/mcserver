@@ -11,7 +11,7 @@ const filesRemove = new Set();
 function typeName(type) {
     return {
         FORGE: "Forge", NEOFORGE: "NeoForge", FABRIC: "Fabric", PAPER: "Paper",
-        VANILLA: "Vanilla", AUTO_CURSEFORGE: t("type.modpackShort"), MODRINTH: t("type.modpackShort")
+        VANILLA: "Vanilla", BEDROCK: "Bedrock", AUTO_CURSEFORGE: t("type.modpackShort"), MODRINTH: t("type.modpackShort")
     }[type] || type;
 }
 
@@ -31,6 +31,9 @@ async function loadMods() {
         const data = await api("/mods?t=" + Date.now());
 
         if (currentServer !== started) return;
+
+        $("modsJava").hidden = false;
+        $("addonsArea").hidden = true;
 
         modsData = data;
         modsRemove.clear();

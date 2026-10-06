@@ -600,6 +600,9 @@ onkeydown="onCommandKey(event)"
 
 <section id="tab-mods" class="tab-page" hidden>
 
+<!-- Java: mods, plugins y modpacks (27-mods.js) -->
+<div id="modsJava">
+
 <div id="modsPending" class="fm-bar fm-bar-move" hidden>
 <span class="fm-bar-text" data-i18n="mods.pending">There are changes waiting: they apply when the server restarts.</span>
 <button class="btn btn-warn btn-small" onclick="applyMods()" data-i18n="mods.apply">Apply and restart</button>
@@ -681,6 +684,60 @@ onkeydown="onCommandKey(event)"
 </div>
 <p class="hint" data-i18n="mods.filesHint">Includes jars added by hand or by Modrinth</p>
 <div id="modsFiles" class="list"></div>
+</div>
+
+</div>
+
+<!-- Bedrock: add-ons gratuitos (27-addons.js) -->
+<div id="addonsArea" hidden>
+
+<div id="addonsRestart" class="fm-bar fm-bar-move" hidden>
+<span class="fm-bar-text" data-i18n="addons.restartNote">Restart the server so players get the add-on changes.</span>
+<button class="btn btn-warn btn-small" onclick="confirmRestart()" data-i18n="btn.restart">Restart</button>
+</div>
+
+<div class="card">
+<div class="card-head">
+<h3 class="card-title" data-i18n="addons.installedTitle">Installed add-ons</h3>
+<div class="toolbar">
+<label class="un-check"><input id="addonsAll" type="checkbox" class="check" onchange="toggleAllAddons(this.checked)"> <span data-i18n="mods.selectAll">Select all</span></label>
+<button id="addonsRemoveBtn" class="btn btn-stop btn-small" onclick="removeSelectedAddons()" disabled>Remove</button>
+</div>
+</div>
+<p class="hint" data-i18n="addons.installedHint">The switch turns each one on or off in the world without uninstalling it.</p>
+<div id="addonsList" class="mod-list"></div>
+</div>
+
+<div class="card">
+<div class="card-head">
+<h3 class="card-title" data-i18n="addons.uploadTitle">Upload an add-on</h3>
+</div>
+<p class="hint" data-i18n="addons.uploadDesc">Free .mcaddon or .mcpack files from CurseForge, MCPEDL or any other site. Paid Marketplace content can't be used on a server.</p>
+<label id="addonsDrop" class="addons-drop">
+<input id="addonsFile" type="file" accept=".mcaddon,.mcpack,.zip" multiple hidden onchange="uploadAddons(this.files); this.value = ''">
+<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M17 8l-5-5-5 5"/><path d="M12 3v12"/></svg>
+<span data-i18n="addons.dropText">Drop files here or click to choose</span>
+</label>
+<div id="addonsUploads"></div>
+</div>
+
+<div class="card">
+<div class="card-head">
+<h3 class="card-title" data-i18n="addons.searchTitle">Find free add-ons</h3>
+<span class="hint">CurseForge</span>
+</div>
+<div id="addonsNoKey" class="set-note" hidden data-i18n="addons.noKey">To search here the administrator adds a free CurseForge key in Administration. You can still upload add-ons downloaded from any site.</div>
+<form id="addonsSearchForm" class="pl-inline addons-search" onsubmit="searchAddons(event)">
+<select id="addonsKind" class="input addons-kind">
+<option value="addons" data-i18n="addons.kindAddons">Add-ons</option>
+<option value="textures" data-i18n="addons.kindTextures">Texture packs</option>
+</select>
+<input id="addonsQuery" class="input" data-i18n-placeholder="addons.searchPh" placeholder="Search by name..." autocomplete="off">
+<button class="btn btn-start btn-small" type="submit" data-i18n="mods.search">Search</button>
+</form>
+<div id="addonsResults" class="mod-list mods-results-gap"></div>
+</div>
+
 </div>
 
 </section>
@@ -915,6 +972,8 @@ GitHub
 <div class="app-footer-row app-footer-credits">
 <span data-i18n="ftr.credits">Built with</span>
 <a href="https://github.com/itzg/docker-minecraft-server" target="_blank" rel="noopener">itzg/minecraft-server</a>
+<span class="sep">·</span>
+<a href="https://github.com/itzg/docker-minecraft-bedrock-server" target="_blank" rel="noopener">itzg/minecraft-bedrock-server</a>
 <span class="sep">·</span>
 <a href="https://modrinth.com" target="_blank" rel="noopener">Modrinth</a>
 <span class="sep">·</span>

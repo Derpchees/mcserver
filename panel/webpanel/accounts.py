@@ -22,7 +22,7 @@ from .icons import write_server_icon
 from .storage_admin import data_disk_ready, storage_alert
 
 
-VERSION_TEXT = re.compile(r"^(LATEST|SNAPSHOT|[0-9][0-9A-Za-z._-]{0,19})$")
+VERSION_TEXT = re.compile(r"^(LATEST|SNAPSHOT|PREVIEW|[0-9][0-9A-Za-z._-]{0,19})$")
 
 _failed_logins = {}
 _auth_lock = threading.Lock()
@@ -92,6 +92,7 @@ def auth_state(user):
         "limits": limits_for(user, as_admin=setup),
         "system_name": core.SYSTEM_NAME,
         "types": list(core.SERVER_TYPES),
+        "bedrock_port_start": core.BEDROCK_PORT_START,
         "my_servers": [s.id for s in core.servers_of(user["id"])] if user else [],
         # Para el menu de la cuenta: nombre e icono de cada uno
         "my_server_list": [{"id": s.id, "name": s.name, "slug": s.slug, "icon": s.icon}
@@ -209,6 +210,10 @@ def clean_server_fields(data, user, partial=False):
 
         out["loader"] = loader
 
+    # Bedrock no usa Java ni cargador de mods
+    if out.get("type") == "BEDROCK":
+        data = {k: v for k, v in data.items() if k not in ("java", "loader", "modpack")}
+
     if "java" in data:
         java = str(data.get("java") or "")
 
@@ -280,7 +285,10 @@ def create_server_for(user, data):
     loader = fields.pop("loader", "")
     modpack = fields.pop("modpack", "")
 
-    if type_ == "AUTO_CURSEFORGE":
+    if type_ == "BEDROCK":
+        # Nombre en la lista de servidores (ver motd.set_bedrock_name)
+        fields["extra_env"] = json.dumps({"SERVER_NAME": fields["name"]})
+    elif type_ == "AUTO_CURSEFORGE":
         fields["extra_env"] = json.dumps({"CF_SLUG": modpack})
         fields["version"] = "LATEST"
     elif type_ == "MODRINTH":
@@ -294,8 +302,10 @@ def create_server_for(user, data):
 
     # Mensaje inicial en la lista multijugador (el nombre) e icono propio
     try:
-        set_motd(srv, srv.name, None)
-        write_server_icon(srv)
+        if not core.is_bedrock(srv):
+            set_motd(srv, srv.name, None)
+            write_server_icon(srv)
+
         # Un servidor nuevo no tiene mundo que respaldar: el primer respaldo
         # automatico toca en el siguiente turno del horario
         backup_schedule.mark_done(srv)

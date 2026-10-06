@@ -38,9 +38,10 @@ Each person creates an account from the login page and, in the same step, their 
 - **Browser notifications**: server online, stopped or crashed; backup finished or failed; and, for the administrator, high temperature, almost-full disk or memory. They arrive even with the panel closed or the phone locked (Web Push, with no extra service: the notice carries no text, the device fetches it from the panel).
 - **Installable app**: on PC (Chrome, Edge) and phones (**Add to Home Screen**) the panel installs as an app with the MCServer icon.
 - **Safe deleting**: deleting a server, an account or the whole system asks for a double confirmation.
+- **Bedrock**: servers for phones, tablets, consoles and Windows, with the same automatic start and stop. Free **add-ons**: upload a `.mcaddon` or `.mcpack`, or search CurseForge and install with one click; turn each one on or off in the world, or remove it.
 - English and Spanish, light and dark themes.
 
-Each Minecraft server runs in the [`itzg/minecraft-server`](https://github.com/itzg/docker-minecraft-server) image. Types: **Forge, NeoForge, Fabric, Paper and Vanilla**.
+Each Minecraft server runs in the [`itzg/minecraft-server`](https://github.com/itzg/docker-minecraft-server) image (Java: **Forge, NeoForge, Fabric, Paper and Vanilla**) or [`itzg/minecraft-bedrock-server`](https://github.com/itzg/docker-minecraft-bedrock-server) (**Bedrock**).
 
 ## Requirements
 
@@ -67,11 +68,11 @@ The installer prepares the machine. It asks, in English or Spanish:
 1. **Where the servers live**: a list of your disks with their free space. It can mount an unmounted partition permanently. It never formats anything.
 2. **Where backups go**: ideally a different physical disk.
 3. **Network**: all networks, or one interface such as a ZeroTier or Tailscale address.
-4. **Ports**: the panel port, and the first game port. Each new server takes the next free one.
+4. **Ports**: the panel port, the first Java game port and the first Bedrock port (19132 by default). Each new server takes the next free one.
 5. **Address players use**: an IP or domain.
 6. Acceptance of the [Minecraft EULA](https://aka.ms/MinecraftEULA).
 
-If the `ufw` firewall is active, it opens the panel port and 50 game ports on the chosen network.
+If the `ufw` firewall is active, it opens the panel port, 50 Java ports (TCP), and for Bedrock 50 TCP ports plus their game UDP range (20 per server) on the chosen network.
 
 When it finishes, **open the panel address it prints and create the administrator account**.
 

@@ -1,6 +1,6 @@
 # MCServer by Derpchees — guía para Claude
 
-Panel web para correr varios servidores de Minecraft Java en un equipo Linux (Debian/Ubuntu), cada uno en Docker (`itzg/minecraft-server`), con cuentas de usuario. Pensado para **redes de casa o VPN** (ZeroTier, Tailscale), nunca expuesto a internet. Repo público: https://github.com/Derpchees/mcserver (rama `main`, licencia MIT).
+Panel web para correr varios servidores de Minecraft (Java y Bedrock) en un equipo Linux (Debian/Ubuntu), cada uno en Docker (`itzg/minecraft-server` o `itzg/minecraft-bedrock-server`), con cuentas de usuario. Pensado para **redes de casa o VPN** (ZeroTier, Tailscale), nunca expuesto a internet. Repo público: https://github.com/Derpchees/mcserver (rama `main`, licencia MIT).
 
 Lee esto en lugar de recorrer todo el proyecto. Los detalles privados del entorno del dueño están en `CLAUDE.local.md` (no se sube a GitHub).
 
@@ -34,6 +34,9 @@ panel/
                             rehacer disco, vigilancia de discos (watch.py, lo usa el agente)
   sysadmin/                 tareas del sistema: duckdns.py (HTTPS con Let's Encrypt), localca.py
                             (HTTPS con CA propia), update.py (actualizar desde GitHub), tasks.py
+  bedrock/                  servidores Bedrock (tipo BEDROCK): signaling.py (NetherNet: estado HTTP y
+                            puertos UDP), console.py (comandos con send-command, sin RCON), firstboot.py,
+                            packs.py y addons.py (add-ons: .mcaddon/.mcpack, activar en el mundo)
   push/                     notificaciones push (Web Push): vapid.py (firma ES256 sin librerias),
                             store.py (dispositivos suscritos), sender.py (hilo del agente),
                             kinds.py (temas de avisos que cada cuenta silencia)
@@ -54,6 +57,7 @@ panel/
 ### Detalles importantes del backend
 
 - Dentro de una petición de servidor se usa `S()` / `use_server()` (`webpanel/common.py`).
+- Bedrock (`core.is_bedrock`): desde la 1.26 usa NetherNet: HTTP por TCP en `BEDROCK_PORT_START` (19132, pasa por el proxy del agente) y el juego por UDP directo, 20 puertos por servidor (`bedrock/signaling.py`). Sin RCON ni Java; el nombre en la lista va en `SERVER_NAME` (la imagen no reescribe un `server.properties` existente). Tiene add-ons en lugar de mods (`webpanel/addons.py`, solo gratuitos: subidos o de CurseForge, juego 78022). Un servidor no cambia de Java a Bedrock.
 - Rutas `/s/<id>/...` = de un servidor (`server_get` / `server_post` en `handler.py`); `/admin/...` = administración; varias acciones son solo del **dueño del sistema** (`is_owner`).
 - Cambios con el servidor encendido quedan pendientes (`containers.request_rebuild`); `container_matches` compara con el contenedor real para no dejar pendientes falsos.
 - Las rutas de datos (`DATA_ROOT`, `BACKUP_ROOT`) pueden cambiar en vivo: usar `core.data_root()` / `core.backup_root()`, nunca las constantes.

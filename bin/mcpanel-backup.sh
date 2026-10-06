@@ -5,8 +5,8 @@
 #   mcpanel-backup.sh <servidor> auto    respaldo programado; conserva BACKUP_KEEP_AUTO
 #   mcpanel-backup.sh <servidor> manual  respaldo manual; se conserva hasta borrarlo
 #
-# Si Minecraft esta encendido se pausa el guardado (save-off) mientras
-# se copia, para que el mundo quede consistente.
+# Si Minecraft esta encendido se pausa el guardado (save-off; en Bedrock
+# save hold) mientras se copia, para que el mundo quede consistente.
 #
 
 # El codigo esta junto a este script (normalmente /opt/mcpanel)
@@ -44,6 +44,41 @@ rcon() {
     docker exec "$CONTAINER" rcon-cli "$@" >/dev/null 2>&1
 }
 
+# Bedrock no tiene RCON: los comandos van a su consola con send-command
+bedrock() {
+    docker exec --privileged "$CONTAINER" send-command "$@" >/dev/null 2>&1
+}
+
+# Pausa el guardado y espera a que los archivos se puedan copiar
+pause_saving() {
+    if [ "${EDITION:-java}" != "bedrock" ]; then
+        rcon save-off || return 1
+        rcon save-all flush
+        sleep 5
+        return 0
+    fi
+
+    local since
+    since=$(date +%s)
+    bedrock save hold || return 1
+
+    for _ in $(seq 1 30); do
+        sleep 2
+        bedrock save query
+        docker logs --since "$since" "$CONTAINER" 2>&1 | grep -q "ready to be copied" && return 0
+    done
+
+    return 0
+}
+
+resume_saving() {
+    if [ "${EDITION:-java}" = "bedrock" ]; then
+        bedrock save resume
+    else
+        rcon save-on
+    fi
+}
+
 # Aviso en el chat del juego (solo si el servidor esta encendido)
 announce() {
     python3 "$ANNOUNCE" "$SLUG" "$1" >/dev/null 2>&1 || true
@@ -73,7 +108,7 @@ tmp="$final.partial"
 saving_off=0
 
 cleanup() {
-    [ "$saving_off" -eq 1 ] && rcon save-on
+    [ "$saving_off" -eq 1 ] && resume_saving
     rm -f "$tmp"
 }
 
@@ -85,10 +120,8 @@ if [ "$(docker inspect -f '{{.State.Running}}' "$CONTAINER" 2>/dev/null)" = "tru
     announce backup_start
     announced=1
 
-    if rcon save-off; then
+    if pause_saving; then
         saving_off=1
-        rcon save-all flush
-        sleep 5
         log "INICIANDO | Minecraft encendido, guardado pausado"
     else
         log "INICIANDO | no se pudo pausar el guardado, se respalda igual"
@@ -104,6 +137,7 @@ command -v pigz >/dev/null && compressor="pigz -6"
 tar \
     --use-compress-program="$compressor" \
     --exclude="$(basename "$DATA_DIR")/.cache" \
+    --exclude="$(basename "$DATA_DIR")/bedrock_server-*" \
     -cf "$tmp" \
     -C "$(dirname "$DATA_DIR")" \
     "$(basename "$DATA_DIR")"
@@ -111,7 +145,7 @@ tar \
 status=$?
 
 if [ "$saving_off" -eq 1 ]; then
-    rcon save-on
+    resume_saving
     saving_off=0
 fi
 

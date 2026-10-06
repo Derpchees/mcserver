@@ -15,6 +15,7 @@ from .common import (
     autostop_info, container_info, FileError, read_json_file, S, use_server, write_json_file,
 )
 from .chat import chat_history
+from . import bedrock_players
 
 
 PLAYER_NAME = re.compile(r"^\w{1,16}$")
@@ -48,6 +49,9 @@ def log_action(text):
 
 
 def list_players():
+    if core.is_bedrock(S()):
+        return bedrock_players.list_players()
+
     data = os.path.realpath(S().data_dir)
     cache = read_json_file(os.path.join(data, "usercache.json"), [])
     ops = read_json_file(os.path.join(data, "ops.json"), [])
@@ -151,6 +155,9 @@ def list_players():
 
 
 def player_action(data):
+    if core.is_bedrock(S()):
+        return bedrock_players.player_action(data, log_action)
+
     name = str(data.get("name", ""))
     action = str(data.get("action", ""))
 
@@ -272,6 +279,9 @@ def timeout_loop():
         time.sleep(30)
 
         for srv in core.list_servers():
+            if core.is_bedrock(srv):
+                continue
+
             use_server(srv)
             bans_file = os.path.join(srv.data_dir, "banned-players.json")
 

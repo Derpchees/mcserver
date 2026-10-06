@@ -43,6 +43,10 @@ def update_server_config(srv, data, user):
     modpack = fields.pop("modpack", None)
     new_type = fields.get("type", srv.type)
 
+    # Los mundos de Java y Bedrock no son compatibles (y usan otros puertos)
+    if core.is_bedrock(new_type) != core.is_bedrock(srv):
+        raise FileError("Un servidor no puede pasar de Java a Bedrock ni al revés: crea uno nuevo")
+
     # El cargador y el modpack viven en las variables extra del contenedor
     if loader is not None or modpack is not None or new_type != srv.type:
         extra = dict(srv.extra_env)

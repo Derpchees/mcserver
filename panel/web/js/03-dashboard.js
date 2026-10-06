@@ -624,7 +624,12 @@ async function confirmRestart() {
         okClass: "btn-warn"
     });
 
-    if (ok) action("restart");
+    if (ok) {
+        action("restart");
+        // Los add-ons cambiados ya se aplican con este reinicio
+        addonsChangedOn.delete(currentServer);
+        $("addonsRestart").hidden = true;
+    }
 
     return ok;
 }

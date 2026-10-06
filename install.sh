@@ -15,7 +15,7 @@
 
 set -euo pipefail
 
-VERSION="2.4.0"
+VERSION="2.5.0"
 REPO="Derpchees/mcserver"
 INSTALL_DIR="/opt/mcpanel"
 CONFIG_DIR="/etc/mcpanel"
@@ -86,6 +86,8 @@ EN[panel_port]="Panel port:"
 ES[panel_port]="Puerto del panel:"
 EN[game_port]="First game port. Each new server uses the next free one (25565, 25566, ...):"
 ES[game_port]="Primer puerto de juego. Cada servidor nuevo usa el siguiente libre (25565, 25566, ...):"
+EN[bedrock_port]="First Bedrock port (for phones, consoles and Windows). Each new Bedrock server uses the next free one (19132, 19133, ...):"
+ES[bedrock_port]="Primer puerto de Bedrock (para celulares, consolas y Windows). Cada servidor Bedrock nuevo usa el siguiente libre (19132, 19133, ...):"
 EN[port_busy]="Port %s is already in use. Choose another one."
 ES[port_busy]="El puerto %s ya está en uso. Elige otro."
 EN[address]="Address players will use to connect (IP or domain, without port):"
@@ -304,30 +306,60 @@ install_files() {
     ln -sf "$INSTALL_DIR/bin/mcpanel-passwd" /usr/local/bin/mcpanel-passwd
 }
 
-# Si ufw esta activo abre el panel y un rango de puertos de juego. Las
-# reglas se guardan para que uninstall.sh las quite.
+# Interfaz de red de LISTEN_IP como "in on <iface> " para las reglas de ufw
+firewall_scope() {
+    local iface=""
+
+    if [ "$1" != "0.0.0.0" ]; then
+        iface=$(ip -4 -o addr show | awk -v ip="$1" '{split($4, a, "/"); if (a[1] == ip) print $2}' | head -1)
+    fi
+
+    [ -n "$iface" ] && echo "in on $iface "
+    return 0
+}
+
+# Si ufw esta activo abre el panel y un rango de puertos de juego (Java por
+# TCP, Bedrock por UDP). Las reglas se guardan para que uninstall.sh las quite.
 configure_firewall() {
     command -v ufw >/dev/null || return 0
     ufw status 2>/dev/null | grep -q "^Status: active" || return 0
 
     step "$(t step_firewall)"
 
-    local iface="" rules="$CONFIG_DIR/ufw-rules"
-
-    if [ "$LISTEN_IP" != "0.0.0.0" ]; then
-        iface=$(ip -4 -o addr show | awk -v ip="$LISTEN_IP" '{split($4, a, "/"); if (a[1] == ip) print $2}' | head -1)
-    fi
-
-    local scope=""
-    [ -n "$iface" ] && scope="in on $iface "
+    local rules="$CONFIG_DIR/ufw-rules" scope
+    scope=$(firewall_scope "$LISTEN_IP")
 
     : > "$rules"
 
     for spec in "${scope}to any port $PANEL_PORT proto tcp" \
-                "${scope}to any port $GAME_PORT_START:$((GAME_PORT_START + 49)) proto tcp"; do
+                "${scope}to any port $GAME_PORT_START:$((GAME_PORT_START + 49)) proto tcp" \
+                "${scope}to any port $BEDROCK_PORT_START:$((BEDROCK_PORT_START + 49)) proto tcp" \
+                "${scope}to any port $BEDROCK_PORT_START:$((BEDROCK_PORT_START + 999)) proto udp"; do
         # shellcheck disable=SC2086
         ufw allow $spec comment mcserver >/dev/null
         echo "$spec" >> "$rules"
+    done
+}
+
+# Al actualizar desde una version sin Bedrock: si el instalador abrio el
+# firewall, se agregan tambien sus puertos (sin tocar las demas reglas)
+add_bedrock_firewall() {
+    local rules="$CONFIG_DIR/ufw-rules" listen start scope spec
+
+    [ -f "$rules" ] && command -v ufw >/dev/null || return 0
+    ufw status 2>/dev/null | grep -q "^Status: active" || return 0
+
+    listen=$(sed -n 's/^LISTEN_IP="\(.*\)"$/\1/p' "$CONFIG" | tail -1)
+    start=$(sed -n 's/^BEDROCK_PORT_START="\(.*\)"$/\1/p' "$CONFIG" | tail -1)
+    valid_port "${start:-}" || start=19132
+    scope=$(firewall_scope "${listen:-0.0.0.0}")
+
+    # Conexion (TCP) y juego (UDP, 20 puertos por servidor)
+    for spec in "${scope}to any port $start:$((start + 49)) proto tcp" \
+                "${scope}to any port $start:$((start + 999)) proto udp"; do
+        grep -qxF "$spec" "$rules" && continue
+        # shellcheck disable=SC2086
+        ufw allow $spec comment mcserver >/dev/null && echo "$spec" >> "$rules"
     done
 }
 
@@ -371,6 +403,7 @@ if [ "$UPDATE_ONLY" -eq 1 ]; then
 
     install_files
     python3 "$INSTALL_DIR/panel/mcpanel_core.py" init >/dev/null
+    add_bedrock_firewall || true
     install_units
     echo "$(t updated "$VERSION")"
     exit 0
@@ -388,6 +421,7 @@ if [ -f "$CONFIG" ] && [ "$INTERACTIVE" -eq 1 ]; then
             clear
             install_files
             python3 "$INSTALL_DIR/panel/mcpanel_core.py" init >/dev/null
+            add_bedrock_firewall || true
             install_units
             echo "$(t updated "$VERSION")"
             exit 0 ;;
@@ -409,6 +443,7 @@ BACKUP_ROOT="/srv/minecraft/backups"
 LISTEN_IP="0.0.0.0"
 PANEL_PORT=8090
 GAME_PORT_START=25565
+BEDROCK_PORT_START=19132
 PUBLIC_HOST=""
 ACCEPT_EULA="no"
 HTTPS="local"
@@ -523,6 +558,12 @@ if [ "$INTERACTIVE" -eq 1 ]; then
         ui_msg "$(t port_busy "$GAME_PORT_START")"
     done
 
+    while true; do
+        BEDROCK_PORT_START=$(ui_input "$(t bedrock_port)" "$BEDROCK_PORT_START")
+        valid_port "$BEDROCK_PORT_START" && [ "$BEDROCK_PORT_START" != "$PANEL_PORT" ] && break
+        ui_msg "$(t port_busy "$BEDROCK_PORT_START")"
+    done
+
     shown_ip="$LISTEN_IP"
     [ "$shown_ip" = "0.0.0.0" ] && shown_ip="$(primary_ip)"
     PUBLIC_HOST=$(ui_input "$(t address)" "$shown_ip")
@@ -547,7 +588,7 @@ if [ "$INTERACTIVE" -eq 1 ]; then
     summary="$(t s_servers):   $DATA_ROOT
 $(t s_backups):   $BACKUP_ROOT
 $(t s_network):       $LISTEN_IP
-$(t s_ports):     panel $PANEL_PORT, Minecraft $GAME_PORT_START+
+$(t s_ports):     panel $PANEL_PORT, Minecraft $GAME_PORT_START+, Bedrock $BEDROCK_PORT_START+
 $(t s_address):   $PUBLIC_HOST"
 
     ui_yesno "$(t summary)\n\n$summary\n\n$(t confirm)" || cancel
@@ -557,6 +598,7 @@ else
     [ "$ACCEPT_EULA" = "yes" ] || die "$(t eula_no) (ACCEPT_EULA=yes)"
     valid_port "$PANEL_PORT" && port_free "$PANEL_PORT" || die "$(t port_busy "$PANEL_PORT")"
     valid_port "$GAME_PORT_START" || die "GAME_PORT_START"
+    valid_port "$BEDROCK_PORT_START" || die "BEDROCK_PORT_START"
     [ -n "$PUBLIC_HOST" ] || PUBLIC_HOST="$([ "$LISTEN_IP" = "0.0.0.0" ] && primary_ip || echo "$LISTEN_IP")"
 fi
 
@@ -613,6 +655,7 @@ chown "$MC_UID:$MC_GID" "$DATA_ROOT" "$BACKUP_ROOT"
     write_config_value PANEL_PORT "$PANEL_PORT"
     write_config_value PANEL_BIND "$LISTEN_IP"
     write_config_value GAME_PORT_START "$GAME_PORT_START"
+    write_config_value BEDROCK_PORT_START "$BEDROCK_PORT_START"
     write_config_value INTERNAL_PORT_START "$((GAME_PORT_START + 10000))"
     write_config_value MC_UID "$MC_UID"
     write_config_value MC_GID "$MC_GID"

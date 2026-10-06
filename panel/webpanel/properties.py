@@ -6,6 +6,9 @@ import subprocess
 import os
 import re
 
+import mcpanel_core as core
+from bedrock import console as bedrock_console
+
 from .common import container_info, FileError, give_to_server, read_lines, S
 
 
@@ -41,6 +44,36 @@ LIVE_SETTINGS = {
     "difficulty": lambda v: ["difficulty", v],
     "white-list": lambda v: ["whitelist", "on" if v == "true" else "off"]
 }
+
+# Bedrock tiene otras claves (y no tiene RCON: se aplican con send-command)
+BEDROCK_SETTINGS = {
+    "difficulty": ("enum", ["peaceful", "easy", "normal", "hard"]),
+    "gamemode": ("enum", ["survival", "creative", "adventure"]),
+    "force-gamemode": ("bool", None),
+    "allow-cheats": ("bool", None),
+    "player-idle-timeout": ("int", (0, 1440)),
+
+    "view-distance": ("int", (5, 96)),
+    "tick-distance": ("int", (4, 12)),
+
+    "max-players": ("int", (1, 200)),
+    "allow-list": ("bool", None),
+    "online-mode": ("bool", None),
+    "default-player-permission-level": ("enum", ["visitor", "member", "operator"]),
+    "texturepacks-required": ("bool", None)
+}
+
+BEDROCK_LIVE = {
+    "difficulty": lambda v: ["difficulty", v]
+}
+
+
+def allowed_settings():
+    return BEDROCK_SETTINGS if core.is_bedrock(S()) else SETTINGS
+
+
+def live_settings():
+    return BEDROCK_LIVE if core.is_bedrock(S()) else LIVE_SETTINGS
 
 
 def unescape_property(value):
@@ -78,7 +111,7 @@ def read_properties():
 
 
 def clean_setting(key, value):
-    kind, rule = SETTINGS[key]
+    kind, rule = allowed_settings()[key]
 
     if kind == "bool":
         if value not in (True, False, "true", "false"):
@@ -117,8 +150,9 @@ def get_settings():
 
     return {
         "running": running == "true",
-        "values": {k: values.get(k, "") for k in SETTINGS},
-        "live": list(LIVE_SETTINGS)
+        "values": {k: values.get(k, "") for k in allowed_settings()},
+        "live": list(live_settings()),
+        "edition": "bedrock" if core.is_bedrock(S()) else "java"
     }
 
 
@@ -133,7 +167,7 @@ def save_settings(changes):
     updates = {}
 
     for key, value in changes.items():
-        if key not in SETTINGS:
+        if key not in allowed_settings():
             raise FileError("Ajuste no permitido: " + str(key), 403)
 
         cleaned = clean_setting(key, value)
@@ -176,12 +210,19 @@ def save_settings(changes):
     applied = []
 
     if running == "true":
+        live = live_settings()
+
         for key, value in updates.items():
-            if key not in LIVE_SETTINGS:
+            if key not in live:
+                continue
+
+            if core.is_bedrock(S()):
+                if bedrock_console.send(S().container, " ".join(live[key](value)))[0]:
+                    applied.append(key)
                 continue
 
             result = subprocess.run(
-                ["docker", "exec", S().container, "rcon-cli"] + LIVE_SETTINGS[key](value),
+                ["docker", "exec", S().container, "rcon-cli"] + live[key](value),
                 capture_output=True,
                 text=True
             )

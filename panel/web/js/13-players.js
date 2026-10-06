@@ -59,6 +59,12 @@ async function loadPlayers() {
 
     try {
         playersData = await api("/players?t=" + Date.now());
+
+        // Bedrock no tiene baneos
+        const bedrock = playersData.edition === "bedrock";
+        document.querySelector('.pl-filters [data-filter="banned"]').hidden = bedrock;
+        if (bedrock && playerFilter === "banned") setPlayerFilter("all");
+
         renderPlayers();
 
         if (openPlayerName) {
@@ -158,11 +164,16 @@ function renderPlayers() {
         const row = el("div", "pl-row" + (player.online ? " online" : ""));
 
         const avatar = el("span", "avatar pl-avatar", player.name.charAt(0).toUpperCase());
-        const img = document.createElement("img");
-        img.alt = "";
-        img.src = "https://mc-heads.net/avatar/" + encodeURIComponent(player.name) + "/64";
-        img.onerror = function() { img.remove(); };
-        avatar.append(img, el("span", "pl-dot"));
+        // Las caras de mc-heads.net son de cuentas de Java
+        if (playersData.edition !== "bedrock") {
+            const img = document.createElement("img");
+            img.alt = "";
+            img.src = "https://mc-heads.net/avatar/" + encodeURIComponent(player.name) + "/64";
+            img.onerror = function() { img.remove(); };
+            avatar.append(img);
+        }
+
+        avatar.append(el("span", "pl-dot"));
 
         const info = el("div", "pl-info");
         const top = el("div", "pl-name");
@@ -267,7 +278,7 @@ function renderPlayerSide(player) {
         [t("pl.firstSeen"), player.first_seen ? new Date(player.first_seen * 1000).toLocaleDateString(locale(), { day: "numeric", month: "short", year: "numeric" }) : "-"],
         [t("pl.lastSeenLabel"), player.online ? t("pl.onlineNow") : timeAgo(player.last_seen)],
         [t("pl.joins"), String(player.joins)],
-        ["UUID", player.uuid || "-"]
+        [playersData.edition === "bedrock" ? "XUID" : "UUID", player.uuid || "-"]
     ].forEach(function([label, value]) {
         const row = el("div", "pl-fact");
         row.append(el("span", "", label), el("b", "", value));
@@ -380,9 +391,15 @@ function renderPlayerPanel(player) {
     });
     timeoutBtn.disabled = !live;
 
-    modRow.append(kick, timeoutSelect, timeoutBtn);
+    const bedrock = playersData.edition === "bedrock";
+    modRow.append(kick);
 
-    if (player.ban) {
+    // Bedrock no tiene baneos ni suspensiones: se usa la lista de permitidos
+    if (!bedrock) modRow.append(timeoutSelect, timeoutBtn);
+
+    if (bedrock) {
+        mod.append(el("div", "pl-hint", t("pl.bedrockNoBan")));
+    } else if (player.ban) {
         const pardon = el("button", "btn btn-start btn-small", t("pl.pardon"));
         pardon.disabled = !live;
         pardon.onclick = function() { playerAction(player.name, "pardon"); };
@@ -486,7 +503,12 @@ async function openPlayer(name, focus) {
         }, 60);
     }
 
-    startSkin(stage, canvas, player.name);
+    if (playersData.edition === "bedrock") {
+        stage.textContent = "";
+        stage.append(el("div", "pl-skin-letter", player.name.charAt(0).toUpperCase()));
+    } else {
+        startSkin(stage, canvas, player.name);
+    }
 
     await done;
 

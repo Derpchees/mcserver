@@ -34,8 +34,18 @@ function serverFields(prefix, values, options) {
 
     const type = el("select", "input");
     type.id = prefix + "Type";
-    [["PAPER", "type.paper"], ["FORGE", "type.forge"], ["NEOFORGE", "type.neoforge"], ["FABRIC", "type.fabric"], ["VANILLA", "type.vanilla"]]
-        .forEach(function([value, key]) { option(type, value, t(key)); });
+
+    // Java y Bedrock no se mezclan: un servidor existente no cambia de edicion
+    const editing = !!v.type;
+    const bedrockServer = v.type === "BEDROCK";
+
+    if (!bedrockServer) {
+        [["PAPER", "type.paper"], ["FORGE", "type.forge"], ["NEOFORGE", "type.neoforge"], ["FABRIC", "type.fabric"], ["VANILLA", "type.vanilla"]]
+            .forEach(function([value, key]) { option(type, value, t(key)); });
+    }
+
+    if (!editing || bedrockServer) option(type, "BEDROCK", t("type.bedrock"));
+    if (bedrockServer) type.disabled = true;
 
     // Los modpacks se eligen y se cambian en la pestana Mods; aqui solo se
     // muestra el actual, sin poder cambiarlo
@@ -48,6 +58,10 @@ function serverFields(prefix, values, options) {
 
     type.value = v.type || "PAPER";
     const typeWrap = field(t("form.type"), type, isModpackServer ? t("cfg.modpackHint") : "");
+
+    // Que es Bedrock (solo al elegirlo)
+    const bedrockHint = el("span", "field-hint", t("form.bedrockHint"));
+    typeWrap.append(bedrockHint);
 
     if (isModpackServer) {
         const goMods = el("button", "btn btn-ghost btn-small", t("cfg.goMods"));
@@ -74,7 +88,7 @@ function serverFields(prefix, values, options) {
     option(java, "", t("form.javaAuto"));
     ["25", "21", "17", "11", "8"].forEach(function(n) { option(java, n, "Java " + n); });
     java.value = v.java || "";
-    field(t("form.java"), java, t("form.javaHint"));
+    const javaWrap = field(t("form.java"), java, t("form.javaHint"));
 
     const ram = el("input", "input");
     ram.id = prefix + "Ram";
@@ -102,7 +116,7 @@ function serverFields(prefix, values, options) {
         const input = el("input", "input");
         input.id = prefix + "Version";
         input.value = wantedVersion;
-        input.placeholder = "LATEST, 1.20.1, 26.1...";
+        input.placeholder = type.value === "BEDROCK" ? "LATEST, 1.26.52.3..." : "LATEST, 1.20.1, 26.1...";
         versionWrap.replaceChild(input, versionWrap.querySelector("#" + prefix + "Version"));
         versionWrap.append(el("span", "field-hint", t("form.versionManual")));
     };
@@ -145,6 +159,11 @@ function serverFields(prefix, values, options) {
     };
 
     const loadVersions = async function() {
+
+        // Bedrock no usa Java ni cargador; la RAM es un limite del contenedor
+        const isBedrock = type.value === "BEDROCK";
+        javaWrap.hidden = isBedrock;
+        bedrockHint.hidden = !isBedrock;
 
         // Un modpack trae su propia version de Minecraft y cargador
         const isModpack = type.value === "AUTO_CURSEFORGE" || type.value === "MODRINTH";
@@ -216,7 +235,7 @@ function readServerFields(prefix) {
         type: $(prefix + "Type").value,
         version: ($(prefix + "Version").value || "").trim() || "LATEST",
         loader: $(prefix + "Loader") && !$(prefix + "Loader").closest(".field").hidden ? $(prefix + "Loader").value : "",
-        java: $(prefix + "Java").value,
+        java: $(prefix + "Type").value === "BEDROCK" ? "" : $(prefix + "Java").value,
         max_gb: Number($(prefix + "Ram").value),
         cpu: Number($(prefix + "Cpu").value)
     };

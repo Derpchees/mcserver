@@ -98,8 +98,10 @@ function renderServerHeader() {
 
 async function editMotd() {
 
+    // Bedrock muestra una sola linea (el nombre del servidor)
+    const maxLines = isBedrockServer() ? 1 : 2;
     const area = el("textarea", "input motd-input");
-    area.rows = 2;
+    area.rows = maxLines;
     area.maxLength = 200;
     area.spellcheck = false;
     area.value = currentMotd;
@@ -112,9 +114,9 @@ async function editMotd() {
     const counter = el("span", "field-hint");
 
     const refresh = function() {
-        // El cliente muestra como mucho dos lineas
+        // El cliente muestra como mucho dos lineas (Bedrock, una)
         const parts = area.value.split("\n");
-        if (parts.length > 2) area.value = parts.slice(0, 2).join("\n");
+        if (parts.length > maxLines) area.value = parts.slice(0, maxLines).join("\n");
 
         renderMcText(lines, area.value);
         counter.textContent = area.value.length + " / 200";

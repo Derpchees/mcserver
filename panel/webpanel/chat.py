@@ -12,6 +12,9 @@ import threading
 import glob
 import gzip
 
+import mcpanel_core as core
+from bedrock import console as bedrock_console
+
 from .common import container_info, DEFAULT_LANG, S
 
 
@@ -178,11 +181,15 @@ def send_chat(text, role="server", username=None):
         ensure_ascii=False
     )
 
-    result = subprocess.run(
-        ["docker", "exec", S().container, "rcon-cli", "tellraw", "@a", payload],
-        capture_output=True,
-        text=True
-    )
+    if core.is_bedrock(S()):
+        sent = bedrock_console.tellraw(S().container, "@a", text, label, color)
+        result = subprocess.CompletedProcess([], 0 if sent else 1, "", "")
+    else:
+        result = subprocess.run(
+            ["docker", "exec", S().container, "rcon-cli", "tellraw", "@a", payload],
+            capture_output=True,
+            text=True
+        )
 
     if result.returncode != 0:
         return {

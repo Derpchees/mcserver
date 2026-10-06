@@ -135,6 +135,23 @@ def forge_builds(mc):
     return {"loaders": builds[:40], "recommended": recommended}
 
 
+def bedrock_versions():
+    # La misma lista que usa la imagen de Bedrock cuando no responde la de Microsoft.
+    # La version exacta va completa (1.26.52.3): asi la descarga la imagen.
+    data = json.loads(fetch_url(
+        "https://raw.githubusercontent.com/kittizz/bedrock-server-downloads/refs/heads/main/bedrock-server-downloads.json"
+    ))
+    versions = []
+
+    for item in data.get("release", {}).values():
+        m = re.search(r"bedrock-server-([0-9.]+)\.zip", ((item or {}).get("linux") or {}).get("url", ""))
+
+        if m:
+            versions.append(m.group(1))
+
+    return sorted(set(versions), key=version_key, reverse=True)
+
+
 def available_versions(type_, mc=""):
     # Sin mc: versiones de Minecraft del tipo. Con mc: versiones del cargador.
     type_ = (type_ or "").upper()
@@ -146,13 +163,13 @@ def available_versions(type_, mc=""):
         if not mc:
             producer = {"VANILLA": vanilla_versions, "PAPER": paper_versions,
                         "FABRIC": fabric_versions, "FORGE": forge_versions,
-                        "NEOFORGE": neoforge_versions}[type_]
+                        "NEOFORGE": neoforge_versions, "BEDROCK": bedrock_versions}[type_]
             return {"versions": cached("mc-" + type_, producer)}
 
         if not LOADER_TEXT.match(mc):
             raise FileError("Versión no válida")
 
-        if type_ == "VANILLA":
+        if type_ in ("VANILLA", "BEDROCK"):
             return {"loaders": [], "recommended": None}
 
         if type_ == "FABRIC":

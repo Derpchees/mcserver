@@ -38,9 +38,10 @@ Cada persona crea su cuenta desde la pantalla de entrar y, en el mismo paso, su 
 - **Notificaciones del navegador**: servidor en línea, apagado o caído; respaldo terminado o fallido; y, para el administrador, temperatura alta o disco o memoria casi llenos. Llegan aunque el panel esté cerrado o el celular bloqueado (Web Push, sin servicios extra: el aviso no lleva texto, el dispositivo lo pide al panel).
 - **App instalable**: en PC (Chrome, Edge) y celular (**Agregar a inicio**) el panel se instala como app con el icono de MCServer.
 - **Borrado seguro**: borrar un servidor, una cuenta o todo el sistema pide doble confirmación.
+- **Bedrock**: servidores para celulares, tablets, consolas y Windows, con el mismo encendido y apagado automático. **Add-ons** gratuitos: sube un `.mcaddon` o `.mcpack`, o búscalo en CurseForge e instálalo con un clic; actívalo, desactívalo en el mundo o quítalo.
 - Inglés y español, tema claro y oscuro.
 
-Cada servidor de Minecraft corre en la imagen [`itzg/minecraft-server`](https://github.com/itzg/docker-minecraft-server). Tipos: **Forge, NeoForge, Fabric, Paper y Vanilla**.
+Cada servidor de Minecraft corre en la imagen [`itzg/minecraft-server`](https://github.com/itzg/docker-minecraft-server) (Java: **Forge, NeoForge, Fabric, Paper y Vanilla**) o [`itzg/minecraft-bedrock-server`](https://github.com/itzg/docker-minecraft-bedrock-server) (**Bedrock**).
 
 ## Requisitos
 
@@ -67,11 +68,11 @@ El instalador prepara el equipo. Pregunta, en inglés o español:
 1. **Dónde van los servidores**: una lista de tus discos con su espacio libre. Puede montar una partición sin montar de forma permanente. Nunca formatea nada.
 2. **Dónde van los respaldos**: idealmente en otro disco físico.
 3. **Red**: todas las redes, o una sola interfaz, por ejemplo tu IP de ZeroTier o Tailscale.
-4. **Puertos**: el del panel, y el primer puerto de juego. Cada servidor nuevo toma el siguiente libre.
+4. **Puertos**: el del panel, el primer puerto de Java y el primero de Bedrock (19132 por defecto). Cada servidor nuevo toma el siguiente libre.
 5. **Dirección que usan los jugadores**: una IP o un dominio.
 6. Aceptar el [EULA de Minecraft](https://aka.ms/MinecraftEULA).
 
-Si el firewall `ufw` está activo, abre el puerto del panel y 50 puertos de juego en la red elegida.
+Si el firewall `ufw` está activo, abre el puerto del panel, 50 puertos de Java (TCP) y, para Bedrock, 50 puertos TCP más su rango UDP del juego (20 por servidor) en la red elegida.
 
 Al terminar, **abre la dirección del panel que muestra y crea la cuenta de administrador**.
 

@@ -32,7 +32,32 @@ const SETTINGS_TYPES = {
     "motd": { type: "text", max: 59 }
 };
 
+// Bedrock tiene otras claves (BEDROCK_SETTINGS del servidor)
+const BEDROCK_SETTINGS_GROUPS = [
+    {
+        id: "game",
+        keys: ["difficulty", "gamemode", "force-gamemode", "allow-cheats", "player-idle-timeout"]
+    },
+    {
+        id: "world",
+        keys: ["view-distance", "tick-distance"]
+    },
+    {
+        id: "players",
+        keys: ["max-players", "allow-list", "online-mode", "default-player-permission-level",
+            "texturepacks-required"]
+    }
+];
+
+const BEDROCK_SETTINGS_TYPES = {
+    "gamemode": { type: "enum", options: ["survival", "creative", "adventure"] },
+    "view-distance": { type: "int", min: 5, max: 96 },
+    "tick-distance": { type: "int", min: 4, max: 12 },
+    "default-player-permission-level": { type: "enum", options: ["visitor", "member", "operator"] }
+};
+
 let settingsSaved = null;
+let settingsEdition = "java";
 let settingsDraft = {};
 let settingsLive = [];
 let settingsRunning = false;
@@ -40,6 +65,7 @@ let settingsRestart = false;
 
 
 function settingType(key) {
+    if (settingsEdition === "bedrock" && BEDROCK_SETTINGS_TYPES[key]) return BEDROCK_SETTINGS_TYPES[key];
     return SETTINGS_TYPES[key] || { type: "bool" };
 }
 
@@ -67,6 +93,7 @@ async function loadSettings() {
         settingsDraft = Object.assign({}, data.values);
         settingsLive = data.live || [];
         settingsRunning = data.running;
+        settingsEdition = data.edition || "java";
 
         renderSettings();
 
@@ -161,7 +188,7 @@ function renderSettings() {
 
     if (!settingsSaved) return;
 
-    SETTINGS_GROUPS.forEach(function(group) {
+    (settingsEdition === "bedrock" ? BEDROCK_SETTINGS_GROUPS : SETTINGS_GROUPS).forEach(function(group) {
 
         const card = el("div", "card");
         const head = el("div", "card-head");
@@ -180,7 +207,9 @@ function renderSettings() {
                 label.append(el("span", "tag green set-live", t("set.live")));
             }
 
-            text.append(label, el("div", "set-desc", t("set." + key + ".d")));
+            // Algunas claves de Bedrock tienen su propia descripcion
+            const desc = (settingsEdition === "bedrock" && t("set." + key + ".d.bedrock")) || t("set." + key + ".d");
+            text.append(label, el("div", "set-desc", desc));
             row.append(text, settingControl(key));
             list.append(row);
         });

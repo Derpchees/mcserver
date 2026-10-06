@@ -82,10 +82,14 @@ PUBLIC_HOST = cfg("PUBLIC_HOST", "")
 PANEL_PORT = int(cfg("PANEL_PORT", "8090"))
 PANEL_BIND = cfg("PANEL_BIND", "0.0.0.0")
 GAME_PORT_START = int(cfg("GAME_PORT_START", "25565"))
+# Bedrock usa otro rango de puertos (19132 es el que los clientes usan por defecto):
+# TCP para conectarse y, desde ahi, UDP para el juego (bedrock/signaling.py)
+BEDROCK_PORT_START = int(cfg("BEDROCK_PORT_START", "19132"))
 INTERNAL_PORT_START = int(cfg("INTERNAL_PORT_START", "35565"))
 MC_UID = int(cfg("MC_UID", "1000"))
 MC_GID = int(cfg("MC_GID", "1000"))
 IMAGE = cfg("IMAGE", "itzg/minecraft-server")
+BEDROCK_IMAGE = cfg("BEDROCK_IMAGE", "itzg/minecraft-bedrock-server")
 DOCKER_NETWORK = cfg("DOCKER_NETWORK", "mcpanel-net")
 
 # HTTPS: certificado y clave (los pone el panel al activar el acceso seguro)
@@ -221,7 +225,13 @@ def path_available(path):
     mount = expected_mount(path)
     return mount is None or is_mount(mount)
 
-SERVER_TYPES = ("FORGE", "NEOFORGE", "FABRIC", "PAPER", "VANILLA", "AUTO_CURSEFORGE", "MODRINTH")
+SERVER_TYPES = ("FORGE", "NEOFORGE", "FABRIC", "PAPER", "VANILLA", "AUTO_CURSEFORGE", "MODRINTH", "BEDROCK")
+
+
+def is_bedrock(type_or_srv):
+    # Bedrock (moviles, consolas, Windows) usa otra imagen, UDP y add-ons en lugar de mods
+    type_ = getattr(type_or_srv, "type", type_or_srv)
+    return type_ == "BEDROCK"
 
 # Variable del contenedor que fija la version del cargador de cada tipo
 LOADER_ENV = {
@@ -545,7 +555,7 @@ class Server:
     def address(self):
         host = get_setting("public_host") or PUBLIC_HOST or "localhost"
 
-        if self.game_port == 25565:
+        if self.game_port == (19132 if is_bedrock(self) else 25565):
             return host
 
         return "%s:%d" % (host, self.game_port)
@@ -578,6 +588,7 @@ class Server:
             "BACKUP_MOUNT": expected_mount(self.backup_dir) or "",
             "BACKUP_KEEP_AUTO": str(min(self.backup_keep, BACKUP_KEEP_MAX)),
             "LOG_DIR": self.log_dir,
+            "EDITION": "bedrock" if is_bedrock(self) else "java",
             "RUN_DIR": os.path.dirname(self.run_file),
             "MC_UID": str(MC_UID),
             "MC_GID": str(MC_GID)
@@ -599,6 +610,7 @@ class Server:
             "owner": owner_name,
             "owner_id": self.owner_id,
             "type": self.type,
+            "edition": "bedrock" if is_bedrock(self) else "java",
             "version": self.version,
             "max_gb": self.max_gb,
             "cpu": self.cpu,
@@ -660,17 +672,17 @@ def make_slug(base):
     return candidate
 
 
-def port_in_use(port):
-    result = subprocess.run(["ss", "-ltnH", "( sport = :%d )" % port],
+def port_in_use(port, udp=False):
+    result = subprocess.run(["ss", "-lunH" if udp else "-ltnH", "( sport = :%d )" % port],
                             capture_output=True, text=True)
     return bool(result.stdout.strip())
 
 
-def allocate_ports():
+def allocate_ports(bedrock=False):
     used_game = {r["game_port"] for r in query("SELECT game_port FROM servers")}
     used_internal = {r["internal_port"] for r in query("SELECT internal_port FROM servers")}
 
-    game = GAME_PORT_START
+    game = BEDROCK_PORT_START if bedrock else GAME_PORT_START
     while game in used_game or port_in_use(game):
         game += 1
 
@@ -682,7 +694,7 @@ def allocate_ports():
 
 
 def create_server_row(name, owner_id, type_, version, max_gb, cpu, **extra):
-    game_port, internal_port = allocate_ports()
+    game_port, internal_port = allocate_ports(is_bedrock(type_))
     slug = extra.pop("slug", None) or make_slug(name)
 
     values = {
@@ -753,13 +765,52 @@ def container_state(srv):
     return status, health
 
 
+def host_timezone():
+    return subprocess.run(["timedatectl", "show", "-p", "Timezone", "--value"],
+                          capture_output=True, text=True).stdout.strip() or "UTC"
+
+
+def bedrock_spec(srv):
+    # Bedrock no usa Java: la RAM es un limite del contenedor. Desde la 1.26
+    # se conecta con NetherNet: HTTP por TCP (pasa por el proxy del agente) y
+    # el juego por UDP directo a su rango de puertos, anunciado con la IP de
+    # los jugadores (ver bedrock/signaling.py)
+    from bedrock import signaling
+
+    first, last = signaling.udp_range(srv)
+    env = {
+        "EULA": "TRUE",
+        "VERSION": srv.version or "LATEST",
+        "TRANSPORT": "nethernet",
+        "SERVER_UDP_PORTS": "%s:%d-%d:%d-%d" % (signaling.advertised_ip(), first, last, first, last),
+        "UID": str(MC_UID),
+        "GID": str(MC_GID),
+        "TZ": host_timezone()
+    }
+
+    for key, value in sorted(srv.extra_env.items()):
+        env[key] = str(value)
+
+    return {
+        "image": BEDROCK_IMAGE + ":latest",
+        "env": env,
+        "cpus": srv.cpu if srv.cpu and srv.cpu > 0 else 0,
+        "memory": srv.max_gb * 1024 ** 3,
+        "restart": "no" if srv.autostop else "unless-stopped",
+        "port": srv.internal_port,
+        "udp": (first, last),
+        "data": srv.data_dir
+    }
+
+
 def container_spec(srv):
     # Como debe quedar el contenedor del servidor. Lo usan build_container
     # (para crearlo) y container_matches (para saber si hay cambios pendientes).
-    image = "%s:%s" % (IMAGE, ("java" + srv.java) if srv.java else java_tag(srv.version))
+    if is_bedrock(srv):
+        return bedrock_spec(srv)
 
-    tz = subprocess.run(["timedatectl", "show", "-p", "Timezone", "--value"],
-                        capture_output=True, text=True).stdout.strip() or "UTC"
+    image = "%s:%s" % (IMAGE, ("java" + srv.java) if srv.java else java_tag(srv.version))
+    tz = host_timezone()
 
     env = {
         "EULA": "TRUE",
@@ -823,11 +874,22 @@ def build_container(srv, start=False):
         "--name", srv.container,
         "--network", DOCKER_NETWORK,
         "--label", "mcpanel.server=" + srv.slug,
-        "-p", "127.0.0.1:%d:25565" % spec["port"],
         "-v", "%s:/data" % spec["data"],
         "--stop-timeout", "60",
         "--restart", spec["restart"]
     ]
+
+    if is_bedrock(srv):
+        # HTTP por el proxy; el UDP del juego directo. La entrada abierta
+        # deja mandar comandos con send-command
+        first, last = spec["udp"]
+        args += ["-p", "127.0.0.1:%d:19132/tcp" % spec["port"],
+                 "-p", "%s:%d-%d:%d-%d/udp" % (LISTEN_IP, first, last, first, last), "-i"]
+    else:
+        args += ["-p", "127.0.0.1:%d:25565" % spec["port"]]
+
+    if spec.get("memory"):
+        args += ["--memory", str(spec["memory"])]
 
     for key, value in spec["env"].items():
         args += ["-e", "%s=%s" % (key, value)]
@@ -865,6 +927,9 @@ def container_matches(srv):
         return False
 
     if int(host.get("NanoCpus") or 0) != int(spec["cpus"] * 1e9):
+        return False
+
+    if int(host.get("Memory") or 0) != int(spec.get("memory") or 0):
         return False
 
     # Variables propias: las del contenedor menos las que trae la imagen

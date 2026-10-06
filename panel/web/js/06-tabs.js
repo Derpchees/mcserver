@@ -59,7 +59,8 @@ function applyManageUI() {
     const modsTab = document.querySelector('.tab-btn[data-tab="mods"]');
     const type = info ? info.type : "";
     modsTab.hidden = !manage;
-    $("modsTabLabel").textContent = type === "PAPER" ? t("mods.tabPlugins") : t("mods.tab");
+    $("modsTabLabel").textContent = type === "BEDROCK" ? t("addons.tab")
+        : type === "PAPER" ? t("mods.tabPlugins") : t("mods.tab");
 
     // Sin permiso solo existiria Panel: no se muestra ninguna pestana
     $("serverNav").hidden = !(manage && info && currentView === "server");
@@ -78,6 +79,12 @@ function applyManageUI() {
     if (consoleLocked === manage) setConsoleLocked(!manage);
 
     renderDefaultStar();
+}
+
+
+// Bedrock: add-ons en lugar de mods, sin baneos ni skins de Java
+function isBedrockServer() {
+    return !!currentServerInfo && currentServerInfo.type === "BEDROCK";
 }
 
 

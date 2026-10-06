@@ -9,7 +9,7 @@ let canManageCurrent = false;
 let currentView = "home";
 
 // Rutas que dependen del servidor abierto: se les antepone /s/<id>
-const SERVER_SCOPED = /^\/(api|stats|console|chat|files\/|backups|settings|players|mods\b|command|action\/|server\/)/;
+const SERVER_SCOPED = /^\/(api|stats|console|chat|files\/|backups|settings|players|mods\b|addons\b|command|action\/|server\/)/;
 
 // Rutas que cualquiera puede consultar sin ser dueno
 const SERVER_PUBLIC = /^\/(api|stats|action\/start|console|chat)/;

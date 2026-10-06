@@ -8,6 +8,9 @@ import re
 import time
 import calendar
 
+import mcpanel_core as core
+from bedrock import console as bedrock_console
+
 from .common import autostop_info, command, container_info, read_lines, S
 from .motd import read_motd
 from .containers import has_pending
@@ -30,6 +33,11 @@ PLAYER_EVENT = re.compile(
     r"^(\S+) \[.*?\]: (\w{1,16}) (joined|left) the game$"
 )
 
+# Bedrock: "[fecha INFO] Player connected: Steve, xuid: 2535..."
+BEDROCK_PLAYER_EVENT = re.compile(
+    r"^(\S+) .*Player (connected|disconnected): (.+?), xuid"
+)
+
 _player_cache = {}
 
 
@@ -43,18 +51,22 @@ def player_events():
     output = command(
         "docker logs --timestamps --since 168h "
         + S().container
-        + " 2>&1 | grep -E ' (joined|left) the game$'"
+        + " 2>&1 | grep -E ' (joined|left) the game$|Player (connected|disconnected):'"
     )
 
     events = []
 
     for line in output.splitlines():
         m = PLAYER_EVENT.match(line.strip())
+        b = None if m else BEDROCK_PLAYER_EVENT.match(line.strip())
 
-        if not m:
+        if b:
+            stamp, kind, name = b.groups()
+            kind = "joined" if kind == "connected" else "left"
+        elif m:
+            stamp, name, kind = m.groups()
+        else:
             continue
-
-        stamp, name, kind = m.groups()
 
         try:
             ts = calendar.timegm(
@@ -194,6 +206,16 @@ def send_command(command_text):
         return {
             "ok": False,
             "message": "El servidor está apagado"
+        }
+
+    if core.is_bedrock(S()):
+        # La respuesta sale en el log: se espera un momento para leerla
+        ok, output = bedrock_console.send(S().container, command_text, wait=1.0)
+
+        return {
+            "ok": ok,
+            "message": "Comando enviado" if ok else "No se pudo ejecutar el comando",
+            "output": output
         }
 
     result = subprocess.run(
