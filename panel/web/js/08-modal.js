@@ -9,8 +9,7 @@ function openModal(options) {
 
     $("modalTitle").textContent = options.title || "";
     $("modalHint").textContent = options.hint || "";
-    $("modalBox").classList.toggle("wide", !!options.wide);
-    $("modalBox").classList.toggle("player-modal", options.cls === "player-modal");
+    $("modalBox").className = "modal-box" + (options.wide ? " wide" : "") + (options.cls ? " " + options.cls : "");
     $("modalCancel").hidden = !!options.hideCancel;
 
     const body = $("modalBody");

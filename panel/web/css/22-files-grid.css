@@ -1,0 +1,228 @@
+/* ---------- Archivos: cuadricula, vista y seleccion con recuadro ---------- */
+
+.fm-nav .fm-sort {
+    width: auto;
+    flex: 0 0 auto;
+    padding: 7px 30px 7px 11px;
+    font-size: 13px;
+}
+
+.fm-views {
+    display: flex;
+    flex: none;
+    gap: 2px;
+    padding: 2px;
+    border: 1px solid var(--border-strong);
+    border-radius: 9px;
+    background: var(--surface-2);
+}
+
+.fm-view-btn {
+    width: 30px;
+    height: 28px;
+    border-radius: 7px;
+    color: var(--muted);
+}
+
+.fm-view-btn.active {
+    background: var(--surface);
+    color: var(--text);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, .18);
+}
+
+/* Espacio vacio debajo de los archivos: ahi se empieza el recuadro */
+.fm-grid,
+.fm-rows {
+    min-height: 240px;
+}
+
+.fm-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(118px, 1fr));
+    gap: 6px;
+    padding: 12px;
+    border-top: 1px solid var(--border);
+    align-content: start;
+}
+
+.fm-grid .list-empty {
+    grid-column: 1 / -1;
+}
+
+.fm-tile {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 5px;
+    min-width: 0;
+    padding: 14px 8px 10px;
+    border: 1px solid transparent;
+    border-radius: 12px;
+    user-select: none;
+    cursor: default;
+    transition: background-color .12s ease, border-color .12s ease;
+}
+
+.fm-tile:hover {
+    background: var(--surface-2);
+    border-color: var(--border);
+}
+
+.fm-tile.selected,
+.fm-tile.selected:hover {
+    background: var(--blue-bg);
+    border-color: color-mix(in srgb, var(--blue) 45%, transparent);
+}
+
+.fm-tile .check {
+    position: absolute;
+    top: 8px;
+    left: 8px;
+    opacity: 0;
+    transition: opacity .12s ease;
+}
+
+.fm-tile:hover .check,
+.fm-tile.selected .check {
+    opacity: 1;
+}
+
+.fm-tile-icon {
+    position: relative;
+    display: grid;
+    place-items: center;
+    width: 56px;
+    height: 56px;
+    color: var(--muted);
+}
+
+.fm-tile-icon svg {
+    width: 46px;
+    height: 46px;
+}
+
+.fm-tile-ext {
+    position: absolute;
+    bottom: 3px;
+    padding: 0 4px;
+    border-radius: 4px;
+    background: var(--surface);
+    border: 1px solid currentColor;
+    font-size: 9px;
+    font-weight: 800;
+    letter-spacing: .02em;
+    line-height: 14px;
+}
+
+.fm-tile-name {
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    max-width: 100%;
+    font-size: 12.5px;
+    font-weight: 600;
+    line-height: 1.3;
+    text-align: center;
+    overflow-wrap: anywhere;
+}
+
+.fm-tile-meta {
+    color: var(--dim);
+    font-size: 11px;
+}
+
+.fm-tile.drop-target {
+    outline: 2px dashed var(--green);
+    outline-offset: -2px;
+    background: var(--green-bg);
+}
+
+/* Color por tipo de archivo (cuadricula y lista) */
+.kind-folder .fm-tile-icon,
+.kind-folder .row-icon {
+    color: var(--amber);
+}
+
+.kind-archive .fm-tile-icon,
+.kind-archive .row-icon {
+    color: #a78bfa;
+}
+
+.kind-text .fm-tile-icon,
+.kind-text .row-icon {
+    color: var(--blue);
+}
+
+.kind-image .fm-tile-icon,
+.kind-image .row-icon {
+    color: var(--green);
+}
+
+/* Recuadro de seleccion */
+.fm-marquee {
+    position: absolute;
+    z-index: 50;
+    border: 1px solid var(--blue);
+    border-radius: 3px;
+    background: color-mix(in srgb, var(--blue) 14%, transparent);
+    pointer-events: none;
+}
+
+body.fm-selecting {
+    user-select: none;
+}
+
+/* Etiqueta al arrastrar varios */
+.fm-drag-ghost {
+    position: fixed;
+    top: -100px;
+    left: -100px;
+    padding: 6px 12px;
+    border-radius: 999px;
+    background: var(--blue);
+    color: var(--on-blue);
+    font-size: 13px;
+    font-weight: 700;
+}
+
+@media (pointer: coarse) {
+    .fm-tile .check {
+        opacity: 1;
+    }
+}
+
+@media (max-width: 700px) {
+    .fm-grid {
+        grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+        padding: 8px;
+    }
+
+    .fm-nav .fm-sort {
+        flex: 1;
+    }
+}
+
+/* Barras de seleccion y de mover: flotan abajo (no empujan los archivos) */
+#fmSelection,
+#fmMove {
+    position: sticky;
+    bottom: 14px;
+    z-index: 6;
+    margin: 12px 0 0;
+    background: color-mix(in srgb, var(--blue) 14%, var(--surface));
+    box-shadow: 0 10px 28px rgba(0, 0, 0, .25);
+}
+
+#fmMove {
+    background: color-mix(in srgb, var(--amber) 16%, var(--surface));
+}
+
+/* En el celular, encima de la barra de pestanas de abajo */
+@media (max-width: 640px) {
+    #fmSelection,
+    #fmMove {
+        bottom: calc(78px + env(safe-area-inset-bottom));
+    }
+}

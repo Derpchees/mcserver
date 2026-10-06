@@ -59,6 +59,18 @@ let fmSort = { key: "name", dir: 1 };
 let fmClipboard = null;
 let fmLastClicked = null;
 
+// Vista: cuadricula de iconos (por defecto) o lista. Se recuerda en el navegador.
+let fmView = (function() {
+    try {
+        return localStorage.getItem("mc-fm-view") === "list" ? "list" : "grid";
+    } catch (error) {
+        return "grid";
+    }
+})();
+
+// En celular un toque abre (no hay doble clic) y la casilla selecciona
+const FM_TOUCH = window.matchMedia && window.matchMedia("(pointer: coarse)").matches;
+
 const DRAG_TYPE = "application/x-mc-paths";
 
 
@@ -137,14 +149,58 @@ function setSort(key) {
 }
 
 
+// Menu de orden (valor "clave:direccion", por ejemplo "mtime:-1")
+function setSortFromSelect(value) {
+    const [key, dir] = value.split(":");
+    fmSort = { key: key, dir: Number(dir) || 1 };
+    renderFiles();
+}
+
+
+function setFileView(view) {
+    fmView = view === "list" ? "list" : "grid";
+
+    try {
+        localStorage.setItem("mc-fm-view", fmView);
+    } catch (error) {
+    }
+
+    renderFiles();
+}
+
+
+// Tipo de archivo para el icono y su color
+function fileKind(entry) {
+    if (entry.dir) return "folder";
+    if (/\.(zip|jar|gz|tar|7z|rar|mcaddon|mcpack|mcworld)$/i.test(entry.name)) return "archive";
+    if (/\.(png|jpe?g|gif|webp|bmp|ico)$/i.test(entry.name)) return "image";
+    if (/\.(dat|dat_old|mca|nbt|db|ldb)$/i.test(entry.name)) return "data";
+    if (isText(entry.name)) return "text";
+    return "file";
+}
+
+
+function fileExt(name) {
+    const parts = name.split(".");
+    return parts.length > 1 && parts[0] ? parts.pop().slice(0, 5).toUpperCase() : "";
+}
+
+
 function renderFiles() {
 
     const list = $("fileList");
     const entries = visibleEntries();
 
     list.textContent = "";
+    list.className = fmView === "grid" ? "fm-grid" : "fm-rows";
+    $("fmHead").hidden = fmView === "grid";
+
+    document.querySelectorAll(".fm-view-btn").forEach(function(btn) {
+        btn.classList.toggle("active", btn.dataset.view === fmView);
+    });
 
     $("fmUp").disabled = !currentPath;
+    $("fmSortSel").value = fmSort.key + ":" + fmSort.dir;
 
     ["name", "size", "mtime"].forEach(function(key) {
         $("sort-" + key).textContent =
@@ -157,7 +213,7 @@ function renderFiles() {
     }
 
     entries.forEach(function(entry) {
-        list.append(fileRow(entry));
+        list.append(fmView === "grid" ? fileTile(entry) : fileRow(entry));
     });
 
     renderSelection();
@@ -169,7 +225,7 @@ function renderSelection() {
     const count = fmSelected.size;
     const visible = visibleEntries();
 
-    document.querySelectorAll("#fileList .row").forEach(function(row) {
+    document.querySelectorAll("#fileList [data-name]").forEach(function(row) {
         const on = fmSelected.has(row.dataset.name);
         row.classList.toggle("selected", on);
         const box = row.querySelector(".check");
@@ -219,6 +275,109 @@ function selectedPaths() {
 }
 
 
+// Clic en un archivo o carpeta, como en el explorador del equipo:
+// solo ese; con Ctrl se suma o se quita; con Shift, el rango
+function clickEntry(entry, event) {
+
+    if (FM_TOUCH && !event.ctrlKey && !event.shiftKey) {
+        openEntry(entry);
+        return;
+    }
+
+    if (event.shiftKey && fmLastClicked) {
+        const names = visibleEntries().map(function(e) { return e.name; });
+        const a = names.indexOf(fmLastClicked);
+        const b = names.indexOf(entry.name);
+
+        if (!(event.ctrlKey || event.metaKey)) fmSelected.clear();
+
+        if (a !== -1 && b !== -1) {
+            names.slice(Math.min(a, b), Math.max(a, b) + 1).forEach(function(n) {
+                toggleSelect(n, true);
+            });
+        }
+    } else if (event.ctrlKey || event.metaKey) {
+        toggleSelect(entry.name);
+        fmLastClicked = entry.name;
+    } else {
+        fmSelected.clear();
+        fmSelected.add(entry.name);
+        fmLastClicked = entry.name;
+    }
+
+    renderSelection();
+}
+
+
+// Arrastrar para mover a otra carpeta; las carpetas reciben lo que se suelta
+function makeDraggableEntry(node, entry) {
+
+    node.draggable = !FM_TOUCH;
+
+    node.addEventListener("dragstart", function(event) {
+
+        if (!fmSelected.has(entry.name)) {
+            fmSelected.clear();
+            fmSelected.add(entry.name);
+            renderSelection();
+        }
+
+        event.dataTransfer.setData(DRAG_TYPE, JSON.stringify(selectedPaths()));
+        event.dataTransfer.effectAllowed = "move";
+
+        // Varios a la vez: una etiqueta con cuantos se mueven
+        if (fmSelected.size > 1) {
+            const ghost = el("div", "fm-drag-ghost", tn("fm.dragCount", fmSelected.size));
+            document.body.append(ghost);
+            event.dataTransfer.setDragImage(ghost, 12, 12);
+            setTimeout(function() { ghost.remove(); }, 0);
+        }
+    });
+
+    if (entry.dir) makeDropTarget(node, joinPath(currentPath, entry.name));
+}
+
+
+function entryCheck(entry) {
+    const check = el("input", "check");
+    check.type = "checkbox";
+    check.onclick = function(event) { event.stopPropagation(); };
+    check.onmousedown = function(event) { event.stopPropagation(); };
+    check.onchange = function() {
+        toggleSelect(entry.name, check.checked);
+        fmLastClicked = entry.name;
+        renderSelection();
+    };
+    return check;
+}
+
+
+// Vista de cuadricula: icono grande, nombre y tamano
+function fileTile(entry) {
+
+    const kind = fileKind(entry);
+    const tile = el("div", "fm-tile kind-" + kind);
+    tile.dataset.name = entry.name;
+    tile.title = entry.name + (entry.dir ? "" : " · " + formatBytes(entry.size)) + "\n" + formatStamp(entry.mtime);
+
+    const icon = el("div", "fm-tile-icon");
+    icon.innerHTML = ICONS[kind === "folder" ? "folder" : kind === "archive" ? "archive"
+        : kind === "text" ? "text" : kind === "image" ? "image" : "file"];
+
+    const ext = fileExt(entry.name);
+    if (!entry.dir && ext) icon.append(el("span", "fm-tile-ext", ext));
+
+    tile.append(entryCheck(entry), icon, el("div", "fm-tile-name", entry.name),
+        el("div", "fm-tile-meta", entry.dir ? t("fm.folder") : formatBytes(entry.size)));
+
+    tile.onclick = function(event) { clickEntry(entry, event); };
+    tile.ondblclick = function() { openEntry(entry); };
+    makeDraggableEntry(tile, entry);
+
+    return tile;
+}
+
+
 function openEntry(entry) {
 
     const full = joinPath(currentPath, entry.name);
@@ -232,24 +391,15 @@ function openEntry(entry) {
 function fileRow(entry) {
 
     const full = joinPath(currentPath, entry.name);
-    const row = el("div", "row");
+    const kind = fileKind(entry);
+    const row = el("div", "row kind-" + kind);
     row.dataset.name = entry.name;
-    row.draggable = true;
 
-    const check = el("input", "check");
-    check.type = "checkbox";
-    check.onclick = function(event) { event.stopPropagation(); };
-    check.onchange = function() {
-        toggleSelect(entry.name, check.checked);
-        fmLastClicked = entry.name;
-        renderSelection();
-    };
+    const check = entryCheck(entry);
 
     const icon = el("span", "row-icon" + (entry.dir ? " folder" : ""));
-    icon.innerHTML = entry.dir ? ICONS.folder
-        : /\.(zip|jar|gz|tar|7z|rar)$/i.test(entry.name) ? ICONS.archive
-        : isText(entry.name) ? ICONS.text
-        : ICONS.file;
+    icon.innerHTML = ICONS[kind === "folder" ? "folder" : kind === "archive" ? "archive"
+        : kind === "text" ? "text" : kind === "image" ? "image" : "file"];
 
     const name = el("span", "row-name");
     const link = el("a", "", entry.name);
@@ -278,47 +428,9 @@ function fileRow(entry) {
 
     row.append(check, icon, name, size, date, actions);
 
-    // Clic en la fila: seleccionar. Con Shift selecciona el rango.
-    row.onclick = function(event) {
-
-        if (event.shiftKey && fmLastClicked) {
-            const names = visibleEntries().map(function(e) { return e.name; });
-            const a = names.indexOf(fmLastClicked);
-            const b = names.indexOf(entry.name);
-
-            if (a !== -1 && b !== -1) {
-                names.slice(Math.min(a, b), Math.max(a, b) + 1).forEach(function(n) {
-                    toggleSelect(n, true);
-                });
-            }
-        } else {
-            toggleSelect(entry.name);
-            fmLastClicked = entry.name;
-        }
-
-        renderSelection();
-    };
-
-    row.ondblclick = function() {
-        openEntry(entry);
-    };
-
-    // Arrastrar filas para moverlas a otra carpeta
-    row.addEventListener("dragstart", function(event) {
-
-        if (!fmSelected.has(entry.name)) {
-            fmSelected.clear();
-            fmSelected.add(entry.name);
-            renderSelection();
-        }
-
-        event.dataTransfer.setData(DRAG_TYPE, JSON.stringify(selectedPaths()));
-        event.dataTransfer.effectAllowed = "move";
-    });
-
-    if (entry.dir) {
-        makeDropTarget(row, full);
-    }
+    row.onclick = function(event) { clickEntry(entry, event); };
+    row.ondblclick = function() { openEntry(entry); };
+    makeDraggableEntry(row, entry);
 
     return row;
 }

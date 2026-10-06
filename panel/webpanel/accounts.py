@@ -348,19 +348,9 @@ def signup(data):
     check_username(username)
     check_new_password(password)
 
-    # Se valida el servidor antes de crear la cuenta
-    clean_server_fields(data.get("server") or {}, None)
-
+    # La cuenta se crea sola: el servidor se crea despues desde el panel
     user_id = core.create_user(username, password)
-    user = core.get_user(user_id)
-
-    try:
-        create_server_for(user, data.get("server") or {})
-    except Exception:
-        core.execute("DELETE FROM users WHERE id = ?", (user_id,))
-        raise
-
-    return user
+    return core.get_user(user_id)
 
 
 def change_password(user, data):

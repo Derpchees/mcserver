@@ -1,0 +1,92 @@
+[
+  {
+    "version": "2.6.0",
+    "date": "2026-10-06",
+    "en": [
+      "Files: icon grid view (or list), sort menu, right-click menu, select several by dragging a box, and drag items onto a folder to move them.",
+      "Mods: tabs for Installed, Find and Modpack; sort, pages and an Add button on every result; filter and pages for long lists.",
+      "Bedrock add-ons: sort and pages in the CurseForge search.",
+      "Creating a server: pick the type from cards, numbered steps and sliders for RAM and cores.",
+      "Signing up no longer asks for a server: you create it from the panel.",
+      "Release notes inside the panel (Administration, Updates)."
+    ],
+    "es": [
+      "Archivos: vista de iconos en cuadrícula (o lista), menú de orden, menú con clic derecho, seleccionar varios arrastrando un recuadro y arrastrar a una carpeta para mover.",
+      "Mods: pestañas Instalados, Buscar y Modpack; orden, páginas y botón Agregar en cada resultado; filtro y páginas en listas largas.",
+      "Add-ons de Bedrock: orden y páginas en la búsqueda de CurseForge.",
+      "Crear servidor: el tipo se elige con tarjetas, pasos numerados y barras para RAM y núcleos.",
+      "Al registrarse ya no se pide un servidor: se crea desde el panel.",
+      "Notas de cada versión dentro del panel (Administración, Actualizaciones)."
+    ]
+  },
+  {
+    "version": "2.5.1",
+    "date": "2026-10-05",
+    "en": [
+      "Player heads show the skin used in game (Quick Skin mod) or the official one, no longer Steve by mistake.",
+      "Server Settings in real tabs: Server, Automatic, Game, Players and Danger zone."
+    ],
+    "es": [
+      "Las caras de los jugadores muestran la skin del juego (mod Quick Skin) o la oficial, ya no Steve por error.",
+      "Ajustes del servidor en pestañas de verdad: Servidor, Automático, Juego, Jugadores y Zona de peligro."
+    ]
+  },
+  {
+    "version": "2.5.0",
+    "date": "2026-10-05",
+    "en": [
+      "Bedrock servers for phones, consoles and Windows, with automatic start and stop.",
+      "Free add-ons: upload a .mcaddon or .mcpack, or install from CurseForge with one click.",
+      "The installer opens the Bedrock ports in the firewall."
+    ],
+    "es": [
+      "Servidores Bedrock para celulares, consolas y Windows, con encendido y apagado automático.",
+      "Add-ons gratis: sube un .mcaddon o .mcpack, o instálalos de CurseForge con un clic.",
+      "El instalador abre los puertos de Bedrock en el firewall."
+    ]
+  },
+  {
+    "version": "2.4.0",
+    "date": "2026-10-05",
+    "en": [
+      "Notifications that also work on phones, even with the panel closed.",
+      "The panel installs as an app on PC and phones.",
+      "Language, theme and alerts moved to the account menu."
+    ],
+    "es": [
+      "Notificaciones que también funcionan en el celular, aunque el panel esté cerrado.",
+      "El panel se instala como app en PC y celular.",
+      "Idioma, tema y avisos pasaron al menú de la cuenta."
+    ]
+  },
+  {
+    "version": "2.3.5",
+    "date": "2026-10-05",
+    "en": ["Server name and icon in the header; change the icon from there."],
+    "es": ["Nombre e icono del servidor en el encabezado; el icono se cambia desde ahí."]
+  },
+  {
+    "version": "2.3.4",
+    "date": "2026-10-04",
+    "en": ["Rename a server from its main card.", "The page reloads reliably after an update."],
+    "es": ["Renombrar un servidor desde su tarjeta principal.", "La página se recarga bien después de actualizar."]
+  },
+  {
+    "version": "2.3.3",
+    "date": "2026-10-04",
+    "en": ["Fixed turning on HTTPS with DuckDNS."],
+    "es": ["Arreglado el activar HTTPS con DuckDNS."]
+  },
+  {
+    "version": "2.3.2",
+    "date": "2026-10-04",
+    "en": ["HTTPS with a free DuckDNS domain, or with the server's own certificate."],
+    "es": ["HTTPS con un dominio gratis de DuckDNS, o con el certificado propio del servidor."]
+  },
+  {
+    "version": "2.3.0",
+    "date": "2026-10-04",
+    "en": ["Updates and HTTPS from the panel, signed-in sessions, disk tools and system alerts."],
+    "es": ["Actualizaciones y HTTPS desde el panel, sesiones abiertas, herramientas de discos y alertas del equipo."]
+  }
+]

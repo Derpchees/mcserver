@@ -242,7 +242,7 @@ class Handler(BaseHTTPRequestHandler):
             if not user and core.get_setting("signup") != "yes" and core.user_count() > 0:
                 return self.deny(user)
 
-            self.guarded(lambda: self.send_json(modrinth_search("modpacks", param("q"))))
+            self.guarded(lambda: self.send_json(modrinth_search("modpacks", param("q"), page=param("page"), sort=param("sort"))))
 
         elif path == "/versions":
             self.guarded(lambda: self.send_json(available_versions(param("type"), param("mc"))))
@@ -384,7 +384,7 @@ class Handler(BaseHTTPRequestHandler):
             self.send_body(addon_icon(param("uuid")), "image/png")
 
         elif path == "/addons/search":
-            self.send_json(cf_addon_search(param("kind"), param("q")))
+            self.send_json(cf_addon_search(param("kind"), param("q"), param("page"), param("sort")))
 
         elif path == "/console":
             self.send_body(console().encode("utf-8"), "text/plain; charset=utf-8")
@@ -398,7 +398,7 @@ class Handler(BaseHTTPRequestHandler):
             if not kind:
                 raise FileError("Este tipo de servidor no admite mods ni plugins")
 
-            self.send_json(modrinth_search(kind, param("q"), srv.version, srv.type))
+            self.send_json(modrinth_search(kind, param("q"), srv.version, srv.type, param("page"), param("sort")))
 
         elif path == "/mods/versions":
             self.send_json(project_versions(param("slug")))

@@ -50,6 +50,11 @@ function renderUpdate(data) {
     if (data.available && data.latest) {
         box.append(el("div", "sto-note is-green", t("upd.available", { v: data.latest })));
 
+        // Lo que trae la version nueva, antes de instalarla
+        if (data.notes_new && data.notes_new.length) {
+            box.append(el("div", "field-label notes-label", t("notes.whatsNew")), notesBox(data.notes_new));
+        }
+
         if (data.players) box.append(el("div", "sto-note is-amber", tn("upd.players", data.players)));
 
         if (isSystemOwner()) {
@@ -64,10 +69,10 @@ function renderUpdate(data) {
     const check = el("button", "btn btn-ghost btn-small", t("upd.check"));
     check.onclick = function() { loadUpdate(true); };
 
-    const changes = el("a", "btn btn-ghost btn-small", t("upd.changes"));
-    changes.href = data.repo + "/commits/main";
-    changes.target = "_blank";
-    changes.rel = "noopener";
+    // Historial de lo instalado, aqui mismo
+    const changes = el("button", "btn btn-ghost btn-small", t("notes.history"));
+    changes.disabled = !(data.notes && data.notes.length);
+    changes.onclick = function() { showReleaseNotes(data.notes, t("notes.title")); };
 
     actions.append(check, changes);
     box.append(actions);
@@ -87,6 +92,9 @@ async function startUpdate(data) {
     } catch (error) {
         return showToast(error.message, "red");
     }
+
+    // Al volver, el panel muestra las novedades una vez
+    rememberUpdateFrom(data.installed);
 
     const box = $("admUpdate");
     box.textContent = "";

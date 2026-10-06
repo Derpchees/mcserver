@@ -608,7 +608,30 @@ onkeydown="onCommandKey(event)"
 <button class="btn btn-warn btn-small" onclick="applyMods()" data-i18n="mods.apply">Apply and restart</button>
 </div>
 
-<div id="modpackCurrent" class="card" hidden>
+<!-- Pestanas de la seccion (27-mods.js): cada tarjeta dice a cual pertenece -->
+<nav id="modsTabs" class="tabs admin-tabs">
+<button class="tab-btn active" data-modtab="installed" onclick="showModsTab('installed')">
+<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><path d="M3.3 7 12 12l8.7-5M12 22V12"/></svg>
+<span data-i18n="mods.tabInstalled">Installed</span>
+<span id="modsInstalledCount" class="tab-count"></span>
+</button>
+<button class="tab-btn" data-modtab="search" onclick="showModsTab('search')">
+<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+<span id="modsSearchTabLabel" data-i18n="mods.tabSearch">Find mods</span>
+</button>
+<button class="tab-btn" data-modtab="modpack" onclick="showModsTab('modpack')">
+<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 8v13H3V8M1 3h22v5H1zM10 12h4"/></svg>
+<span data-i18n="mods.modpackTitle2">Modpack</span>
+</button>
+</nav>
+
+<div id="modsUnsupported" class="card" hidden>
+<h3 class="card-title" data-i18n="mods.unsupportedTitle">This server type has no mods</h3>
+<p class="hint" data-i18n="mods.unsupportedDesc2">Vanilla does not load mods or plugins. Pick a modpack below, or change the type to Forge, NeoForge, Fabric (mods) or Paper (plugins) in Settings.</p>
+</div>
+
+<!-- Instalados -->
+<div id="modpackCurrent" class="card" data-modtab="modpack" hidden>
 <div class="card-head">
 <h3 class="card-title" data-i18n="mods.modpackTitle2">Modpack</h3>
 <button class="btn btn-ghost btn-small" onclick="clearModpack()" data-i18n="mods.clearModpack">Stop using the modpack</button>
@@ -616,18 +639,48 @@ onkeydown="onCommandKey(event)"
 <div id="modpackCurrentRow" class="mod-list"></div>
 </div>
 
-<div id="modsUnsupported" class="card" hidden>
-<h3 class="card-title" data-i18n="mods.unsupportedTitle">This server type has no mods</h3>
-<p class="hint" data-i18n="mods.unsupportedDesc2">Vanilla does not load mods or plugins. Pick a modpack below, or change the type to Forge, NeoForge, Fabric (mods) or Paper (plugins) in Settings.</p>
+<div id="modsProjectsCard" class="card" data-modtab="installed" hidden>
+<div class="card-head">
+<h3 class="card-title"><span data-i18n="mods.projectsTitle2">Added from Modrinth</span> <span id="modsProjectsCount" class="hint"></span></h3>
+<div class="toolbar">
+<label class="un-check"><input id="modsAllProjects" type="checkbox" class="check" onchange="toggleAllProjects(this.checked)"> <span data-i18n="mods.selectAll">Select all</span></label>
+<button class="btn btn-ghost btn-small" onclick="copyModList()" data-i18n="mods.copyList">Copy list</button>
+<button id="modsRemoveBtn" class="btn btn-stop btn-small" onclick="removeSelectedMods()" disabled>Remove</button>
+</div>
+</div>
+<input id="modsProjectsFilter" class="input mods-filter" data-i18n-placeholder="mods.filterPh" placeholder="Filter by name..." autocomplete="off" oninput="modsProjectsPage = 0; renderModProjects()">
+<div id="modsProjects" class="mod-list"></div>
+<div id="modsProjectsPager" class="pager" hidden></div>
 </div>
 
-<div id="modsSearchCard" class="card" hidden>
+<div class="card" data-modtab="installed">
+<div class="card-head">
+<h3 class="card-title"><span id="modsFilesTitle"></span> <span id="modsFilesCount" class="hint"></span></h3>
+<div class="toolbar">
+<label class="un-check"><input id="modsAllFiles" type="checkbox" class="check" onchange="toggleAllFiles(this.checked)"> <span data-i18n="mods.selectAll">Select all</span></label>
+<button id="modsDeleteFilesBtn" class="btn btn-stop btn-small" onclick="deleteSelectedFiles()" disabled>Delete</button>
+</div>
+</div>
+<p class="hint" data-i18n="mods.filesHint">Includes jars added by hand or by Modrinth</p>
+<input id="modsFilesFilter" class="input mods-filter" data-i18n-placeholder="mods.filterPh" placeholder="Filter by name..." autocomplete="off" oninput="modsFilesPage = 0; renderModFiles()">
+<div id="modsFiles" class="list"></div>
+<div id="modsFilesPager" class="pager" hidden></div>
+</div>
+
+<!-- Buscar -->
+<div id="modsSearchCard" class="card" data-modtab="search" hidden>
 <div class="card-head">
 <h3 id="modsSearchTitle" class="card-title"></h3>
 <span class="hint">Modrinth</span>
 </div>
-<form class="pl-inline" onsubmit="searchMods(event)">
+<form class="pl-inline mods-search-form" onsubmit="searchMods(event)">
 <input id="modsQuery" class="input" data-i18n-placeholder="mods.searchPh" placeholder="Search by name..." autocomplete="off">
+<select id="modsSort" class="input mods-sort" data-i18n-title="mods.sortBy" title="Sort by" onchange="searchMods(null, 0)">
+<option value="relevance" data-i18n="mods.sort.relevance">Most relevant</option>
+<option value="downloads" data-i18n="mods.sort.downloads">Most downloaded</option>
+<option value="updated" data-i18n="mods.sort.updated">Recently updated</option>
+<option value="newest" data-i18n="mods.sort.newest">Newest</option>
+</select>
 <button class="btn btn-start btn-small" type="submit" data-i18n="mods.search">Search</button>
 </form>
 <div id="modsHint" class="pl-hint mods-hint"></div>
@@ -635,10 +688,12 @@ onkeydown="onCommandKey(event)"
 <span id="modsPickedText" class="fm-bar-text"></span>
 <button class="btn btn-start btn-small" onclick="addPicked()" data-i18n="mods.addPicked">Add selected</button>
 </div>
+<div id="modsResultsInfo" class="mods-results-info" hidden></div>
 <div id="modsResults" class="mod-list"></div>
+<div id="modsPager" class="pager" hidden></div>
 </div>
 
-<div id="modsBulkCard" class="card" hidden>
+<div id="modsBulkCard" class="card" data-modtab="search" hidden>
 <div class="card-head">
 <h3 class="card-title" data-i18n="mods.bulkTitle">Add several at once</h3>
 </div>
@@ -649,41 +704,26 @@ onkeydown="onCommandKey(event)"
 </div>
 </div>
 
-<div id="modsProjectsCard" class="card" hidden>
-<div class="card-head">
-<h3 class="card-title" data-i18n="mods.projectsTitle2">Added from Modrinth</h3>
-<div class="toolbar">
-<label class="un-check"><input id="modsAllProjects" type="checkbox" class="check" onchange="toggleAllProjects(this.checked)"> <span data-i18n="mods.selectAll">Select all</span></label>
-<button class="btn btn-ghost btn-small" onclick="copyModList()" data-i18n="mods.copyList">Copy list</button>
-<button id="modsRemoveBtn" class="btn btn-stop btn-small" onclick="removeSelectedMods()" disabled>Remove</button>
-</div>
-</div>
-<div id="modsProjects" class="mod-list"></div>
-</div>
-
-<div id="modpackPick" class="card">
+<!-- Modpack -->
+<div id="modpackPick" class="card" data-modtab="modpack">
 <div class="card-head">
 <h3 class="card-title" data-i18n="mods.modpackTitle2">Modpack</h3>
 <span class="hint">Modrinth</span>
 </div>
 <p class="hint" data-i18n="mods.modpackPickDesc">Turn this server into a ready-made modpack. Only modpacks that run on a server are shown.</p>
-<form class="pl-inline" onsubmit="searchModpacks(event)">
+<form class="pl-inline mods-search-form" onsubmit="searchModpacks(event)">
 <input id="modpackQuery" class="input" data-i18n-placeholder="mods.modpackSearchPh" placeholder="Search modpacks..." autocomplete="off">
+<select id="modpackSort" class="input mods-sort" data-i18n-title="mods.sortBy" title="Sort by" onchange="searchModpacks(null, 0)">
+<option value="relevance" data-i18n="mods.sort.relevance">Most relevant</option>
+<option value="downloads" data-i18n="mods.sort.downloads">Most downloaded</option>
+<option value="updated" data-i18n="mods.sort.updated">Recently updated</option>
+<option value="newest" data-i18n="mods.sort.newest">Newest</option>
+</select>
 <button class="btn btn-ghost btn-small" type="submit" data-i18n="mods.search">Search</button>
 </form>
+<div id="modpackResultsInfo" class="mods-results-info" hidden></div>
 <div id="modpackResults" class="mod-list mods-results-gap"></div>
-</div>
-
-<div class="card">
-<div class="card-head">
-<h3 id="modsFilesTitle" class="card-title"></h3>
-<div class="toolbar">
-<label class="un-check"><input id="modsAllFiles" type="checkbox" class="check" onchange="toggleAllFiles(this.checked)"> <span data-i18n="mods.selectAll">Select all</span></label>
-<button id="modsDeleteFilesBtn" class="btn btn-stop btn-small" onclick="deleteSelectedFiles()" disabled>Delete</button>
-</div>
-</div>
-<p class="hint" data-i18n="mods.filesHint">Includes jars added by hand or by Modrinth</p>
-<div id="modsFiles" class="list"></div>
+<div id="modpackPager" class="pager" hidden></div>
 </div>
 
 </div>
@@ -727,15 +767,23 @@ onkeydown="onCommandKey(event)"
 <span class="hint">CurseForge</span>
 </div>
 <div id="addonsNoKey" class="set-note" hidden data-i18n="addons.noKey">To search here the administrator adds a free CurseForge key in Administration. You can still upload add-ons downloaded from any site.</div>
-<form id="addonsSearchForm" class="pl-inline addons-search" onsubmit="searchAddons(event)">
+<form id="addonsSearchForm" class="pl-inline addons-search mods-search-form" onsubmit="searchAddons(event)">
 <select id="addonsKind" class="input addons-kind">
 <option value="addons" data-i18n="addons.kindAddons">Add-ons</option>
 <option value="textures" data-i18n="addons.kindTextures">Texture packs</option>
 </select>
 <input id="addonsQuery" class="input" data-i18n-placeholder="addons.searchPh" placeholder="Search by name..." autocomplete="off">
+<select id="addonsSort" class="input mods-sort" data-i18n-title="mods.sortBy" title="Sort by" onchange="searchAddons(null, 0)">
+<option value="relevance" data-i18n="mods.sort.popular">Most popular</option>
+<option value="downloads" data-i18n="mods.sort.downloads">Most downloaded</option>
+<option value="updated" data-i18n="mods.sort.updated">Recently updated</option>
+<option value="newest" data-i18n="mods.sort.newest">Newest</option>
+</select>
 <button class="btn btn-start btn-small" type="submit" data-i18n="mods.search">Search</button>
 </form>
+<div id="addonsResultsInfo" class="mods-results-info" hidden></div>
 <div id="addonsResults" class="mod-list mods-results-gap"></div>
+<div id="addonsPager" class="pager" hidden></div>
 </div>
 
 </div>
@@ -809,8 +857,39 @@ onkeydown="onCommandKey(event)"
 </button>
 <div id="breadcrumb" class="breadcrumb"></div>
 <input id="fmFilter" class="input fm-filter" data-i18n-placeholder="fm.filter" placeholder="Filter files..." autocomplete="off" oninput="renderFiles()">
+<select id="fmSortSel" class="input fm-sort" data-i18n-title="fm.sortBy" title="Sort by" onchange="setSortFromSelect(this.value)">
+<option value="name:1" data-i18n="fm.sort.nameAsc">Name (A-Z)</option>
+<option value="name:-1" data-i18n="fm.sort.nameDesc">Name (Z-A)</option>
+<option value="mtime:-1" data-i18n="fm.sort.newest">Newest first</option>
+<option value="mtime:1" data-i18n="fm.sort.oldest">Oldest first</option>
+<option value="size:-1" data-i18n="fm.sort.biggest">Largest first</option>
+<option value="size:1" data-i18n="fm.sort.smallest">Smallest first</option>
+</select>
+<div class="fm-views">
+<button class="icon-btn fm-view-btn" data-view="grid" data-i18n-title="fm.viewGrid" title="Icons" onclick="setFileView('grid')">
+<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>
+</button>
+<button class="icon-btn fm-view-btn" data-view="list" data-i18n-title="fm.viewList" title="List" onclick="setFileView('list')">
+<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg>
+</button>
+</div>
 </div>
 
+<div id="uploads" class="uploads"></div>
+
+<div id="fmArea" class="list files">
+<div id="fmHead" class="row row-head">
+<input id="fmAll" type="checkbox" class="check" data-i18n-title="fm.selectAll" title="Select all" onchange="toggleAll(this.checked)">
+<span></span>
+<button class="col-btn" onclick="setSort('name')"><span data-i18n="fm.colName">Name</span><span id="sort-name" class="sort-mark"></span></button>
+<button class="col-btn row-size" onclick="setSort('size')"><span data-i18n="fm.colSize">Size</span><span id="sort-size" class="sort-mark"></span></button>
+<button class="col-btn row-date" onclick="setSort('mtime')"><span data-i18n="fm.colDate">Modified</span><span id="sort-mtime" class="sort-mark"></span></button>
+<span></span>
+</div>
+<div id="fileList"></div>
+</div>
+
+<!-- Barras de seleccion y de mover: flotan abajo para no mover los archivos -->
 <div id="fmSelection" class="fm-bar" hidden>
 <span id="fmSelectionText" class="fm-bar-text"></span>
 <div class="toolbar">
@@ -844,23 +923,9 @@ onkeydown="onCommandKey(event)"
 </div>
 </div>
 
-<div id="uploads" class="uploads"></div>
-
-<div class="list files">
-<div class="row row-head">
-<input id="fmAll" type="checkbox" class="check" data-i18n-title="fm.selectAll" title="Select all" onchange="toggleAll(this.checked)">
-<span></span>
-<button class="col-btn" onclick="setSort('name')"><span data-i18n="fm.colName">Name</span><span id="sort-name" class="sort-mark"></span></button>
-<button class="col-btn row-size" onclick="setSort('size')"><span data-i18n="fm.colSize">Size</span><span id="sort-size" class="sort-mark"></span></button>
-<button class="col-btn row-date" onclick="setSort('mtime')"><span data-i18n="fm.colDate">Modified</span><span id="sort-mtime" class="sort-mark"></span></button>
-<span></span>
-</div>
-<div id="fileList"></div>
-</div>
-
 <div class="fm-hint">
 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V4M6 10l6-6 6 6M4 20h16"/></svg>
-<span data-i18n="fm.dropStrip">Drag files or folders anywhere on this explorer to upload them</span>
+<span data-i18n="fm.dropStrip2">Drag files from your computer to upload them, or drag items onto a folder to move them. Right-click for more options.</span>
 </div>
 
 <div class="fm-overlay">

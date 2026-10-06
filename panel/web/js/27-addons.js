@@ -81,7 +81,7 @@ function renderAddons() {
             name: item.name,
             icon: addonIconUrl(item),
             summary: item.description,
-            author: [t("addons.kind." + item.kind), "v" + item.version_text, source].join(" · ")
+            meta: [t("addons.kind." + item.kind), "v" + item.version_text, source].join(" · ")
         }, addonSwitch(item), check);
 
         row.classList.toggle("addon-off", !item.enabled);
@@ -259,28 +259,35 @@ function uploadAddon(file) {
 // ------------------------------------------------------------
 // CurseForge (todo es gratis)
 
-async function searchAddons(event) {
+async function searchAddons(event, page) {
 
     if (event) event.preventDefault();
+    if (page === undefined) page = 0;
 
     const box = $("addonsResults");
-    box.textContent = "";
-    box.append(el("div", "list-empty", t("form.loading")));
+    loadingList(box);
 
     try {
         const started = currentServer;
         const data = await api("/addons/search?kind=" + $("addonsKind").value
-            + "&q=" + encodeURIComponent($("addonsQuery").value.trim()));
+            + "&q=" + encodeURIComponent($("addonsQuery").value.trim())
+            + "&sort=" + $("addonsSort").value + "&page=" + page);
 
         if (currentServer !== started) return;
 
         box.textContent = "";
+        renderResultsInfo($("addonsResultsInfo"), data);
         if (!data.results.length) box.append(el("div", "list-empty", t("mods.noResults")));
 
         const installed = new Set((addonsData && addonsData.installed_cf) || []);
 
         data.results.forEach(function(item) {
             box.append(modRow(item, addonResultAction(item, installed.has(String(item.id))), null));
+        });
+
+        renderPager($("addonsPager"), data.page || 0, data.pages || 1, function(n) {
+            searchAddons(null, n);
+            $("addonsSearchForm").scrollIntoView({ behavior: "smooth", block: "start" });
         });
     } catch (error) {
         box.textContent = "";

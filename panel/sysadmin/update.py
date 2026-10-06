@@ -7,6 +7,7 @@
 # configuracion, las cuentas, los mundos y los respaldos.
 #
 
+import json
 import os
 import re
 import subprocess
@@ -24,7 +25,12 @@ RAW = "https://raw.githubusercontent.com/%s/%s/install.sh" % (REPO, BRANCH)
 TARBALL = "https://codeload.github.com/%s/tar.gz/refs/heads/%s" % (REPO, BRANCH)
 LOG = os.path.join(core.LOG_ROOT, "update.log")
 
-_cache = {"ts": 0, "latest": None}
+_cache = {"ts": 0, "latest": None, "notes_ts": 0, "notes": None}
+
+# Notas de cada version (en ingles y espanol): las instaladas viajan con el
+# panel; las de la version nueva se leen de GitHub antes de actualizar
+NOTES_FILE = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "changelog.json")
+NOTES_RAW = "https://raw.githubusercontent.com/%s/%s/panel/changelog.json" % (REPO, BRANCH)
 
 
 def installed_version():
@@ -74,6 +80,47 @@ def players_online():
     return total
 
 
+def clean_notes(data):
+    out = []
+
+    for item in data if isinstance(data, list) else []:
+        if not isinstance(item, dict) or not re.match(r"^\d+(\.\d+){1,3}$", str(item.get("version", ""))):
+            continue
+
+        out.append({
+            "version": str(item["version"]),
+            "date": str(item.get("date", ""))[:10],
+            "en": [str(x)[:400] for x in item.get("en", [])][:20],
+            "es": [str(x)[:400] for x in item.get("es", [])][:20]
+        })
+
+    return out
+
+
+def installed_notes():
+    try:
+        with open(NOTES_FILE, "r", encoding="utf-8") as f:
+            return clean_notes(json.load(f))
+    except (OSError, ValueError):
+        return []
+
+
+def latest_notes(force=False):
+    if not force and _cache["notes"] is not None and time.time() - _cache["notes_ts"] < 1800:
+        return _cache["notes"]
+
+    request = urllib.request.Request(NOTES_RAW, headers={"User-Agent": "MCServer-panel"})
+
+    try:
+        with urllib.request.urlopen(request, timeout=15) as response:
+            notes = clean_notes(json.loads(response.read(1024 * 1024)))
+    except (OSError, ValueError):
+        notes = []
+
+    _cache.update({"notes_ts": time.time(), "notes": notes})
+    return notes
+
+
 def status(force=False):
     current = installed_version()
     info = {"installed": current, "latest": None, "available": False, "error": None,
@@ -84,6 +131,14 @@ def status(force=False):
         info["available"] = current == "dev" or version_tuple(info["latest"]) > version_tuple(current)
     except Exception as error:
         info["error"] = str(error)[:200]
+
+    # Novedades de lo que se instalaria y las de las versiones ya instaladas
+    info["notes"] = installed_notes()
+    info["notes_new"] = []
+
+    if info["available"] and current != "dev":
+        info["notes_new"] = [n for n in latest_notes(force)
+                             if version_tuple(n["version"]) > version_tuple(current)]
 
     return info
 

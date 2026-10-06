@@ -53,6 +53,7 @@ panel/
 - `MCPANEL_DEV=1` hace que el panel relea `web/` en cada petición.
 - Idioma, tema y campana viven en `#prefsBox`: con sesion se mudan al menu de la cuenta. Administracion y Ajustes del servidor usan pestanas (`data-admtab`, `#/admin/<pestana>`; `data-settab`, `#/s/<id>/settings/<pestana>`). Al cambiar de vista `route()` cierra cualquier ventana (`closeModal`).
 - Caras y skins de jugadores: `playerHeadUrl` / `playerSkinUrl` (el panel usa la skin de Quick Skin o la de Mojang; `webpanel/skins.py`), nunca mc-heads.net directo.
+- Menú contextual genérico: `openContextMenu(x, y, items)` (08-context-menu.js). Paginación: `renderPager` / `pageSlice` (08-pager.js). Archivos en cuadrícula o lista, con recuadro de selección y menú (10-files.js, 31-files-*.js). Mods con pestañas internas (`data-modtab`).
 - Ayudas comunes: `$`, `el`, `t`, `tn`, `api`, `postJson`, `openModal`, `confirmDialog`, `doubleConfirm`, `showToast`, `formatBytes`.
 
 ### Detalles importantes del backend
@@ -68,6 +69,7 @@ panel/
 ## Versiones y publicación
 
 - La versión vive en `install.sh` (`VERSION="x.y.z"`); el instalador la escribe en `/opt/mcpanel/VERSION` y el pie de página la muestra. **Subirla en cada publicación**: el botón "Actualizar" del panel compara con la de GitHub.
+- **Notas de versión**: en cada publicación agregar arriba una entrada en `panel/changelog.json` (`version`, `date`, listas `en` y `es`, frases cortas para el usuario). El panel las muestra en Administración → Actualizaciones (las de la versión nueva antes de instalar) y una vez al terminar de actualizar; nunca se manda a GitHub.
 - Funciones nuevas grandes suben el número del medio (2.3 → 2.4); arreglos, el último.
 - Commits: título en inglés, imperativo, estilo `MCServer 2.3.5: ...` para versiones; cuerpo explicando el porqué; cerrar con la línea `Co-Authored-By` que indique el sistema.
 - Push a `main` solo cuando el dueño lo pide (lo suele pedir: "dale push", "haz push").

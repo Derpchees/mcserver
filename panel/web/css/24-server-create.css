@@ -1,0 +1,121 @@
+/* ---------- Crear servidor: tipo en tarjetas, pasos y barras ---------- */
+
+.modal-box.create-modal {
+    max-width: 640px;
+}
+
+.create-intro {
+    margin: 0 0 4px;
+}
+
+.create-modal .form-section.create-step {
+    margin-top: 6px;
+    color: var(--text);
+    letter-spacing: .03em;
+}
+
+.create-modal .form-section.create-step:first-child {
+    margin-top: 0;
+    padding-top: 0;
+    border-top: 0;
+}
+
+/* Nombre y tipo ocupan todo el ancho */
+.create-modal .type-field,
+.create-modal .field:has(#newSrvName) {
+    grid-column: 1 / -1;
+}
+
+.type-picker {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 8px;
+}
+
+.type-card {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 11px 12px;
+    border: 1.5px solid var(--border);
+    border-radius: 12px;
+    background: var(--surface-2);
+    color: var(--text);
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+    transition: border-color .15s ease, background-color .15s ease, transform .15s ease;
+}
+
+.type-card:hover {
+    border-color: var(--border-strong);
+    transform: translateY(-1px);
+}
+
+.type-card.active {
+    border-color: var(--green);
+    background: var(--green-bg);
+}
+
+.type-badge {
+    display: grid;
+    place-items: center;
+    width: 30px;
+    height: 30px;
+    flex: none;
+    border-radius: 8px;
+    color: #fff;
+    font-size: 14px;
+    font-weight: 800;
+    box-shadow: inset 0 -3px 0 rgba(0, 0, 0, .18);
+}
+
+.type-text {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+}
+
+.type-title {
+    font-size: 13.5px;
+    font-weight: 700;
+}
+
+.type-desc {
+    color: var(--muted);
+    font-size: 11.5px;
+    line-height: 1.35;
+}
+
+/* Barra y numero en la misma linea */
+.range-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.range-row .input {
+    width: 72px;
+    flex: none;
+    text-align: center;
+}
+
+.range-input {
+    flex: 1;
+    min-width: 0;
+    accent-color: var(--green);
+    cursor: pointer;
+}
+
+@media (max-width: 600px) {
+    .type-picker {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
+/* El contenido se desplaza dentro de la ventana; los botones quedan fijos */
+.create-modal .modal-body,
+.notes-modal .modal-body {
+    overflow-y: auto;
+}

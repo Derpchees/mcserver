@@ -2,13 +2,29 @@
 // Formulario de servidor (registro, configuracion inicial, crear)
 // ============================================================
 
+// Tipos para elegir con tarjetas al crear un servidor (color de su insignia)
+const SERVER_TYPE_CARDS = [
+    ["PAPER", "#3b82f6"], ["FORGE", "#d97706"], ["NEOFORGE", "#ea580c"],
+    ["FABRIC", "#a8956b"], ["VANILLA", "#16a34a"], ["BEDROCK", "#64748b"]
+];
+
+
 // options.resources: otro contenedor para RAM y CPU (en Ajustes van en su tarjeta)
+// options.picker: formulario de crear (tipo en tarjetas, secciones y barras)
 function serverFields(prefix, values, options) {
 
     const limits = (authState && authState.limits) || { max_ram_gb: 4, max_cpu: 1, cores: 1 };
     const v = values || {};
     const box = el("div", "form-grid");
     const resources = (options && options.resources) || box;
+    const picker = !!(options && options.picker);
+
+    // Titulo numerado de cada parte del formulario de crear
+    const section = function(n, key) {
+        if (picker) box.append(el("div", "form-section create-step", n + ". " + t(key)));
+    };
+
+    section(1, "create.stepName");
 
     const field = function(label, input, hint, target) {
         const wrap = el("label", "field");
@@ -57,7 +73,49 @@ function serverFields(prefix, values, options) {
     }
 
     type.value = v.type || "PAPER";
+    section(2, "create.stepType");
     const typeWrap = field(t("form.type"), type, isModpackServer ? t("cfg.modpackHint") : "");
+
+    // Al crear: una tarjeta por tipo (el select sigue guardando el valor)
+    const typeCards = el("div", "type-picker");
+
+    const markType = function() {
+        typeCards.querySelectorAll(".type-card").forEach(function(card) {
+            const on = card.dataset.value === type.value;
+            card.classList.toggle("active", on);
+            card.setAttribute("aria-pressed", on ? "true" : "false");
+        });
+    };
+
+    if (picker) {
+        typeWrap.classList.add("type-field");
+        typeWrap.querySelector(".field-label").hidden = true;
+        type.hidden = true;
+
+        SERVER_TYPE_CARDS.forEach(function([value, color]) {
+            const card = el("button", "type-card");
+            card.type = "button";
+            card.dataset.value = value;
+
+            const badge = el("span", "type-badge", t("create.type." + value).charAt(0));
+            badge.style.background = color;
+
+            const text = el("span", "type-text");
+            text.append(el("span", "type-title", t("create.type." + value)),
+                el("span", "type-desc", t("create.typeDesc." + value)));
+
+            card.append(badge, text);
+            card.onclick = function(event) {
+                event.preventDefault();
+                type.value = value;
+                type.onchange();
+                markType();
+            };
+            typeCards.append(card);
+        });
+
+        typeWrap.insertBefore(typeCards, type);
+    }
 
     // Que es Bedrock (solo al elegirlo)
     const bedrockHint = el("span", "field-hint", t("form.bedrockHint"));
@@ -72,6 +130,8 @@ function serverFields(prefix, values, options) {
         };
         typeWrap.append(goMods);
     }
+
+    section(3, "create.stepVersion");
 
     // Version de Minecraft: lista oficial del tipo elegido
     const version = el("select", "input");
@@ -90,6 +150,8 @@ function serverFields(prefix, values, options) {
     java.value = v.java || "";
     const javaWrap = field(t("form.java"), java, t("form.javaHint"));
 
+    if (picker) resources.append(el("div", "form-section create-step", "4. " + t("create.stepResources")));
+
     const ram = el("input", "input");
     ram.id = prefix + "Ram";
     ram.type = "number";
@@ -107,6 +169,24 @@ function serverFields(prefix, values, options) {
     field(t("form.cpu"), cpu, limits.max_cpu < limits.cores
         ? t("form.cpuHintMax", { max: limits.max_cpu })
         : t("form.cpuHint", { cores: limits.cores }), resources);
+
+    // Al crear, una barra junto a cada numero para elegir mas rapido
+    if (picker) {
+        [ram, cpu].forEach(function(input) {
+            const range = el("input", "range-input");
+            range.type = "range";
+            range.min = input.min;
+            range.max = input.max;
+            range.step = 1;
+            range.value = input.value;
+            range.oninput = function() { input.value = range.value; };
+            input.addEventListener("input", function() { range.value = input.value; });
+
+            const row = el("div", "range-row");
+            input.replaceWith(row);
+            row.append(range, input);
+        });
+    }
 
     let wantedVersion = v.version || "LATEST";
     let wantedLoader = v.loader || "";
@@ -223,7 +303,10 @@ function serverFields(prefix, values, options) {
     };
 
     // El formulario se agrega al documento despues de crearse
-    setTimeout(loadVersions, 0);
+    setTimeout(function() {
+        markType();
+        loadVersions();
+    }, 0);
 
     return box;
 }
@@ -261,12 +344,13 @@ async function postJson(url, body) {
 
 async function openCreateServer() {
 
-    const fields = serverFields("newSrv", { name: authState.user.username });
+    const fields = serverFields("newSrv", { name: authState.user.username }, { picker: true });
 
     const ok = await openModal({
         title: t("srv.create"),
-        body: [fields],
+        body: [el("p", "hint create-intro", t("create.intro")), fields],
         okText: t("srv.createBtn"),
+        cls: "create-modal",
         onOk: function() { return true; }
     });
 

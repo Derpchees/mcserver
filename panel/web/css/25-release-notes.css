@@ -1,0 +1,57 @@
+/* ---------- Notas de version ---------- */
+
+.modal-box.notes-modal {
+    max-width: 560px;
+}
+
+.notes-label {
+    margin-top: 12px;
+}
+
+.notes-box {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    max-height: 60vh;
+    overflow-y: auto;
+}
+
+.sys-box .notes-box {
+    margin-top: 8px;
+    max-height: 320px;
+}
+
+.note-entry {
+    padding: 12px 14px;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: var(--surface-2);
+}
+
+.note-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 10px;
+    margin-bottom: 6px;
+}
+
+.note-version {
+    font-weight: 800;
+    color: var(--green);
+}
+
+.note-date {
+    color: var(--dim);
+    font-size: 12px;
+}
+
+.note-list {
+    margin: 0;
+    padding-left: 18px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    font-size: 13px;
+    line-height: 1.45;
+}

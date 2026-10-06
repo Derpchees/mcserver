@@ -34,14 +34,9 @@ function renderAuth(mode) {
         form.append(el("div", "field-hint", t("auth.userHint")));
     }
 
-    let withServer = null;
     let publicBox = null;
 
-    if (mode === "signup") {
-        form.append(el("div", "form-section", t("form.yourServer")));
-        form.append(serverFields("authSrv"));
-    }
-
+    // El servidor ya no se crea aqui: se crea despues desde la lista de servidores
     if (mode === "setup") {
         const pub = el("label", "un-check");
         publicBox = el("input");
@@ -49,19 +44,7 @@ function renderAuth(mode) {
         publicBox.checked = true;
         pub.append(publicBox, document.createTextNode(" " + t("auth.setupPublic")));
         form.append(el("div", "form-section", t("auth.setupAccess")), pub,
-                    el("div", "field-hint", t("auth.setupPublicHint")),
-                    el("div", "form-section", t("form.yourServer")));
-
-        const label = el("label", "un-check");
-        withServer = el("input");
-        withServer.type = "checkbox";
-        withServer.checked = true;
-        label.append(withServer, document.createTextNode(" " + t("auth.setupServer")));
-        form.append(label);
-
-        const fields = serverFields("authSrv");
-        form.append(fields);
-        withServer.onchange = function() { fields.hidden = !withServer.checked; };
+                    el("div", "field-hint", t("auth.setupPublicHint")));
     }
 
     // Con la casilla, la sesion dura 30 dias (y se renueva al usarla);
@@ -92,10 +75,6 @@ function renderAuth(mode) {
         const body = { username: user.value.trim(), password: pass.value, remember: remember.checked };
 
         if (mode === "setup") body.public_access = publicBox.checked;
-
-        if (mode === "signup" || (mode === "setup" && withServer.checked)) {
-            body.server = readServerFields("authSrv");
-        }
 
         submit.disabled = true;
 

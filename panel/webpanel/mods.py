@@ -156,7 +156,19 @@ def modrinth_item(project):
     }
 
 
-def modrinth_search(kind, query, version="", type_=""):
+# Resultados por pagina y ordenes de las busquedas (indices de Modrinth)
+SEARCH_PAGE = 20
+MODRINTH_SORT = {"relevance": "relevance", "downloads": "downloads", "updated": "updated", "newest": "newest"}
+
+
+def page_number(value):
+    try:
+        return max(0, min(int(value or 0), 400))
+    except (TypeError, ValueError):
+        return 0
+
+
+def modrinth_search(kind, query, version="", type_="", page=0, sort=""):
     if kind not in ("mods", "plugins", "modpacks"):
         raise FileError("Búsqueda no válida")
 
@@ -177,11 +189,14 @@ def modrinth_search(kind, query, version="", type_=""):
     if version and version != "LATEST" and kind != "modpacks":
         facets.append(["versions:" + version])
 
+    page = page_number(page)
+    index = MODRINTH_SORT.get(sort) or ("relevance" if query else "downloads")
     data = modrinth_get("/search", {
         "query": str(query or "")[:80],
         "facets": json.dumps(facets),
-        "limit": 40,
-        "index": "relevance" if query else "downloads"
+        "limit": SEARCH_PAGE,
+        "offset": page * SEARCH_PAGE,
+        "index": index
     }) or {}
 
     results = [modrinth_item(hit) for hit in data.get("hits", [])]
@@ -190,7 +205,8 @@ def modrinth_search(kind, query, version="", type_=""):
     if kind != "plugins":
         results = [r for r in results if r["env"] != "client"]
 
-    return {"results": results}
+    total = int(data.get("total_hits") or 0)
+    return {"results": results, "page": page, "pages": max(1, -(-total // SEARCH_PAGE)), "total": total}
 
 
 VERSION_ID = re.compile(r"^[A-Za-z0-9]{4,24}$")

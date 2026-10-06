@@ -15,7 +15,7 @@ from bedrock.addons import Addons
 from bedrock.packs import PackError
 
 from .common import FileError, fetch_url, log_server_action, S
-from .mods import cf_get
+from .mods import cf_get, page_number, SEARCH_PAGE
 from .properties import read_properties
 
 
@@ -25,6 +25,9 @@ UUID = re.compile(r"^[0-9a-f-]{32,36}$")
 CF_GAME = 78022
 CF_CLASS = {"addons": 4984, "textures": 6929}
 CF_FILE_TYPES = (".mcaddon", ".mcpack", ".zip")
+
+# Orden de la busqueda (sortField de CurseForge)
+CF_SORT = {"relevance": 2, "downloads": 6, "updated": 3, "newest": 11}
 
 
 def store():
@@ -194,17 +197,20 @@ def addon_icon(uuid):
 # CurseForge (Minecraft Bedrock): todo es gratis
 # ============================================================
 
-def cf_addon_search(kind, query):
+def cf_addon_search(kind, query, page=0, sort=""):
     if kind not in CF_CLASS:
         raise FileError("Búsqueda no válida")
 
+    # CurseForge no deja pasar del resultado 10 000
+    page = min(page_number(page), 10000 // SEARCH_PAGE - 1)
     data = cf_get("/mods/search", {
         "gameId": CF_GAME,
         "classId": CF_CLASS[kind],
         "searchFilter": str(query or "")[:80],
-        "sortField": 2,
+        "sortField": CF_SORT.get(sort, 2),
         "sortOrder": "desc",
-        "pageSize": 30
+        "pageSize": SEARCH_PAGE,
+        "index": page * SEARCH_PAGE
     })
 
     results = []
@@ -223,7 +229,8 @@ def cf_addon_search(kind, query):
             "downloadable": mod.get("allowModDistribution") is not False
         })
 
-    return {"results": results}
+    total = min(int((data.get("pagination") or {}).get("totalCount") or 0), 10000)
+    return {"results": results, "page": page, "pages": max(1, -(-total // SEARCH_PAGE)), "total": total}
 
 
 def cf_release(project_id):
