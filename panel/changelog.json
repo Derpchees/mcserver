@@ -1,5 +1,19 @@
 [
   {
+    "version": "2.7.0",
+    "date": "2026-10-06",
+    "en": [
+      "Settings remastered: each tab opens with a short summary; the server type is picked from cards, and RAM and cores have sliders.",
+      "Switches instead of checkboxes, one-tap minutes (5, 10, 15, 30, 60) before stopping, and buttons for options with few choices (difficulty, game mode, backups to keep).",
+      "Bedrock: the owner decides whether players must download the resource packs (Add-ons tab). It was not being applied before: fixed."
+    ],
+    "es": [
+      "Ajustes renovados: cada pestaña abre con un resumen corto; el tipo de servidor se elige con tarjetas y la RAM y los núcleos con barras.",
+      "Interruptores en lugar de casillas, minutos antes de apagar con un toque (5, 10, 15, 30, 60) y botones para las opciones con pocas elecciones (dificultad, modo de juego, respaldos a conservar).",
+      "Bedrock: el dueño decide si los jugadores deben descargar los paquetes de recursos (pestaña Add-ons). Antes no se aplicaba: arreglado."
+    ]
+  },
+  {
     "version": "2.6.0",
     "date": "2026-10-06",
     "en": [
@@ -62,31 +76,53 @@
   {
     "version": "2.3.5",
     "date": "2026-10-05",
-    "en": ["Server name and icon in the header; change the icon from there."],
-    "es": ["Nombre e icono del servidor en el encabezado; el icono se cambia desde ahí."]
+    "en": [
+      "Server name and icon in the header; change the icon from there."
+    ],
+    "es": [
+      "Nombre e icono del servidor en el encabezado; el icono se cambia desde ahí."
+    ]
   },
   {
     "version": "2.3.4",
     "date": "2026-10-04",
-    "en": ["Rename a server from its main card.", "The page reloads reliably after an update."],
-    "es": ["Renombrar un servidor desde su tarjeta principal.", "La página se recarga bien después de actualizar."]
+    "en": [
+      "Rename a server from its main card.",
+      "The page reloads reliably after an update."
+    ],
+    "es": [
+      "Renombrar un servidor desde su tarjeta principal.",
+      "La página se recarga bien después de actualizar."
+    ]
   },
   {
     "version": "2.3.3",
     "date": "2026-10-04",
-    "en": ["Fixed turning on HTTPS with DuckDNS."],
-    "es": ["Arreglado el activar HTTPS con DuckDNS."]
+    "en": [
+      "Fixed turning on HTTPS with DuckDNS."
+    ],
+    "es": [
+      "Arreglado el activar HTTPS con DuckDNS."
+    ]
   },
   {
     "version": "2.3.2",
     "date": "2026-10-04",
-    "en": ["HTTPS with a free DuckDNS domain, or with the server's own certificate."],
-    "es": ["HTTPS con un dominio gratis de DuckDNS, o con el certificado propio del servidor."]
+    "en": [
+      "HTTPS with a free DuckDNS domain, or with the server's own certificate."
+    ],
+    "es": [
+      "HTTPS con un dominio gratis de DuckDNS, o con el certificado propio del servidor."
+    ]
   },
   {
     "version": "2.3.0",
     "date": "2026-10-04",
-    "en": ["Updates and HTTPS from the panel, signed-in sessions, disk tools and system alerts."],
-    "es": ["Actualizaciones y HTTPS desde el panel, sesiones abiertas, herramientas de discos y alertas del equipo."]
+    "en": [
+      "Updates and HTTPS from the panel, signed-in sessions, disk tools and system alerts."
+    ],
+    "es": [
+      "Actualizaciones y HTTPS desde el panel, sesiones abiertas, herramientas de discos y alertas del equipo."
+    ]
   }
 ]

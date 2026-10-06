@@ -48,7 +48,9 @@ def addons_state():
         "addons": items,
         "running": running(),
         "cf_enabled": bool(core.get_setting("cf_api_key")),
-        "texturepacks_required": read_properties().get("texturepacks-required", "") == "true",
+        # Lo elige el dueno: si los jugadores deben bajar los paquetes de recursos
+        "textures_required": read_properties().get(TEXTURES_KEY, "") == "true",
+        "has_properties": os.path.isfile(os.path.join(S().data_dir, "server.properties")),
         "installed_cf": sorted({str(i["source"].get("id")) for i in items
                                 if i["source"].get("provider") == "curseforge"})
     }
@@ -69,26 +71,34 @@ def changed(message, extra=None):
     return out
 
 
-def require_textures():
-    # Con paquetes de recursos, que los jugadores los descarguen al entrar.
+# Propiedad de Bedrock: obliga a los jugadores a bajar los paquetes de
+# recursos del mundo para entrar (si no, el juego les pregunta)
+TEXTURES_KEY = "texturepack-required"
+
+
+def set_textures_required(data, user):
     # Si el servidor nunca arranco no hay server.properties: no se crea uno
     # a medias (la imagen ya no lo completaria)
+    store()
+    on = bool(data.get("required"))
     path = os.path.join(S().data_dir, "server.properties")
 
     if not os.path.isfile(path):
-        return
+        raise FileError("Enciende el servidor una vez para que cree su configuración")
 
     with open(path, "r", encoding="utf-8", errors="replace") as f:
         lines = f.read().splitlines()
 
+    # La 2.5 escribia por error "texturepacks-required": se quita
+    lines = [line for line in lines if not line.startswith("texturepacks-required=")]
+    entry = TEXTURES_KEY + "=" + ("true" if on else "false")
+
     for i, line in enumerate(lines):
-        if line.startswith("texturepacks-required="):
-            if line.strip() == "texturepacks-required=true":
-                return
-            lines[i] = "texturepacks-required=true"
+        if line.startswith(TEXTURES_KEY + "="):
+            lines[i] = entry
             break
     else:
-        lines.append("texturepacks-required=true")
+        lines.append(entry)
 
     tmp = path + ".tmp-panel"
 
@@ -101,6 +111,9 @@ def require_textures():
         pass
 
     os.replace(tmp, path)
+    log_server_action(S(), "%s %s los paquetes de recursos obligatorios" % (
+        user["username"], "activó" if on else "desactivó"))
+    return changed("Ajuste guardado")
 
 
 def install_file(path, user, source=None, group=""):
@@ -110,9 +123,6 @@ def install_file(path, user, source=None, group=""):
         installed = addons.install(path, source, group)
     except PackError as error:
         raise FileError(str(error))
-
-    if any(item["kind"] == "resource" for item in installed):
-        require_textures()
 
     log_server_action(S(), "%s instaló el add-on %s" % (
         user["username"], ", ".join(item["name"] for item in installed)))
@@ -156,9 +166,6 @@ def toggle_addon(data, user):
         item = store().set_enabled(uuid, on)
     except PackError as error:
         raise FileError(str(error))
-
-    if on and item["kind"] == "resource":
-        require_textures()
 
     log_server_action(S(), "%s %s el add-on %s" % (user["username"], "activó" if on else "desactivó", item["name"]))
     return changed("Add-on activado" if on else "Add-on desactivado")

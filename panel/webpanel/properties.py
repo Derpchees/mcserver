@@ -60,7 +60,7 @@ BEDROCK_SETTINGS = {
     "allow-list": ("bool", None),
     "online-mode": ("bool", None),
     "default-player-permission-level": ("enum", ["visitor", "member", "operator"]),
-    "texturepacks-required": ("bool", None)
+    "texturepack-required": ("bool", None)
 }
 
 BEDROCK_LIVE = {

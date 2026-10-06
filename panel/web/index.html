@@ -736,6 +736,14 @@ onkeydown="onCommandKey(event)"
 <button class="btn btn-warn btn-small" onclick="confirmRestart()" data-i18n="btn.restart">Restart</button>
 </div>
 
+<!-- Lo que el dueno elige para los jugadores (27-addons.js) -->
+<div class="card">
+<div class="card-head">
+<h3 class="card-title" data-i18n="addons.playersTitle">For players</h3>
+</div>
+<div id="addonsOptions" class="set-list"></div>
+</div>
+
 <div class="card">
 <div class="card-head">
 <h3 class="card-title" data-i18n="addons.installedTitle">Installed add-ons</h3>
@@ -944,7 +952,6 @@ onkeydown="onCommandKey(event)"
 
 <div id="settingsArea" hidden>
 
-<div id="settingsNote" class="set-note" hidden></div>
 
 <div id="settingsRestart" class="fm-bar fm-bar-move" hidden>
 <span class="fm-bar-text" data-i18n="set.restartNeeded">Some changes will apply after the server restarts.</span>
@@ -974,6 +981,11 @@ onkeydown="onCommandKey(event)"
 <span data-i18n="settab.danger">Danger zone</span>
 </button>
 </nav>
+
+<!-- Cabecera de la pestana elegida: icono, titulo y que hay aqui -->
+<div id="settingsIntro" class="set-intro"></div>
+
+<div id="settingsNote" class="set-note" hidden></div>
 
 <div id="serverConfig"></div>
 

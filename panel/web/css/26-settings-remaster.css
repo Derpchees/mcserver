@@ -1,0 +1,269 @@
+/* ---------- Ajustes: cabecera, interruptores, botones de opcion y atajos ---------- */
+
+/* Cabecera de la pestana elegida */
+.set-intro {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    margin-bottom: 14px;
+    padding: 14px 16px;
+    border: 1px solid color-mix(in srgb, var(--green) 30%, var(--border));
+    border-radius: var(--radius);
+    background: linear-gradient(120deg, var(--green-bg), transparent 70%), var(--surface);
+    animation: fade .2s ease both;
+}
+
+.set-intro-icon {
+    display: grid;
+    place-items: center;
+    width: 42px;
+    height: 42px;
+    flex: none;
+    border-radius: 12px;
+    background: var(--green);
+    color: var(--on-green);
+}
+
+.set-intro-icon svg {
+    width: 21px;
+    height: 21px;
+}
+
+.set-intro-title {
+    font-size: 16px;
+    font-weight: 700;
+}
+
+.set-intro-desc {
+    margin-top: 2px;
+    color: var(--muted);
+    font-size: 13px;
+}
+
+.set-intro.is-danger {
+    border-color: color-mix(in srgb, var(--red) 35%, var(--border));
+    background: linear-gradient(120deg, var(--red-bg), transparent 70%), var(--surface);
+}
+
+.set-intro.is-danger .set-intro-icon {
+    background: var(--red);
+    color: var(--on-red);
+}
+
+/* Icono en el titulo de cada tarjeta */
+.card-title-icon {
+    display: grid;
+    place-items: center;
+    width: 26px;
+    height: 26px;
+    border-radius: 8px;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+}
+
+.card-title-icon svg {
+    width: 15px;
+    height: 15px;
+}
+
+/* Casilla con forma de interruptor (se sigue leyendo con .checked) */
+.toggle {
+    appearance: none;
+    -webkit-appearance: none;
+    position: relative;
+    flex: none;
+    width: 44px;
+    height: 24px;
+    margin: 0;
+    border-radius: 999px;
+    border: 1px solid var(--border-strong);
+    background: var(--surface-2);
+    cursor: pointer;
+    transition: background-color .18s ease, border-color .18s ease;
+}
+
+.toggle::after {
+    content: "";
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: var(--muted);
+    transition: transform .18s ease, background-color .18s ease;
+}
+
+.toggle:checked {
+    background: var(--green);
+    border-color: var(--green);
+}
+
+.toggle:checked::after {
+    transform: translateX(20px);
+    background: var(--on-green);
+}
+
+.toggle:focus-visible {
+    outline: 2px solid var(--green);
+    outline-offset: 2px;
+}
+
+label.cfg-row {
+    cursor: pointer;
+}
+
+/* Botones juntos para elegir una opcion */
+.segmented {
+    display: inline-flex;
+    flex: none;
+    gap: 2px;
+    padding: 3px;
+    border: 1px solid var(--border-strong);
+    border-radius: 10px;
+    background: var(--surface-2);
+}
+
+.seg-btn {
+    padding: 6px 12px;
+    border: 0;
+    border-radius: 7px;
+    background: transparent;
+    color: var(--muted);
+    font: inherit;
+    font-size: 12.5px;
+    font-weight: 600;
+    white-space: nowrap;
+    cursor: pointer;
+    transition: background-color .15s ease, color .15s ease;
+}
+
+.seg-btn:hover {
+    color: var(--text);
+}
+
+.seg-btn.active {
+    background: var(--surface);
+    color: var(--text);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, .2);
+}
+
+.segmented.disabled {
+    opacity: .5;
+    pointer-events: none;
+}
+
+.interval-row .segmented {
+    flex: 1;
+    min-width: 0;
+}
+
+.interval-row .seg-btn,
+.field .segmented .seg-btn {
+    flex: 1;
+}
+
+.field .segmented {
+    display: flex;
+}
+
+/* Atajos de minutos junto al numero */
+.quick-picks {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 6px;
+}
+
+.quick-pick {
+    padding: 6px 11px;
+    border: 1px solid var(--border-strong);
+    border-radius: 999px;
+    background: var(--surface-2);
+    color: var(--muted);
+    font: inherit;
+    font-size: 12.5px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background-color .15s ease, color .15s ease, border-color .15s ease;
+}
+
+.quick-pick:hover {
+    color: var(--text);
+}
+
+.quick-pick.active {
+    border-color: var(--green);
+    background: var(--green-bg);
+    color: var(--green);
+}
+
+.quick-picks .quick-input {
+    width: 76px;
+    padding: 6px 10px;
+    font-size: 13px;
+    text-align: center;
+}
+
+.quick-picks.disabled {
+    opacity: .5;
+    pointer-events: none;
+}
+
+/* Tipo en tarjetas tambien en Ajustes */
+#serverConfig .type-field {
+    grid-column: 1 / -1;
+}
+
+.type-card:disabled {
+    cursor: default;
+    transform: none;
+}
+
+.type-card:disabled:not(.active) {
+    opacity: .5;
+}
+
+/* Respaldos: el interruptor y despues sus opciones */
+.set-list + .form-grid {
+    margin-top: 14px;
+    padding-top: 14px;
+    border-top: 1px solid var(--border);
+}
+
+@media (max-width: 640px) {
+    /* Solo las filas con botones de opcion bajan el control a otra linea */
+    .set-row:has(> .segmented),
+    .set-row:has(> .quick-picks) {
+        flex-wrap: wrap;
+        gap: 10px;
+    }
+
+    .set-row > .segmented {
+        flex-wrap: wrap;
+    }
+
+    .set-row > .segmented,
+    .set-row > .quick-picks {
+        width: 100%;
+        justify-content: flex-start;
+    }
+
+    .set-row > .segmented .seg-btn {
+        flex: 1;
+    }
+
+    .set-intro {
+        padding: 12px;
+    }
+}
+
+/* En el celular las filas se apilan, salvo las de interruptor: queda a la derecha */
+@media (max-width: 600px) {
+    .set-row:has(> .switch),
+    .set-row:has(> .toggle) {
+        flex-direction: row;
+        align-items: center;
+    }
+}

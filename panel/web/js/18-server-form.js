@@ -10,7 +10,8 @@ const SERVER_TYPE_CARDS = [
 
 
 // options.resources: otro contenedor para RAM y CPU (en Ajustes van en su tarjeta)
-// options.picker: formulario de crear (tipo en tarjetas, secciones y barras)
+// options.picker: formulario de crear (tipo en tarjetas, pasos numerados y barras)
+// options.cards / options.sliders: solo tarjetas o barras (Ajustes del servidor)
 function serverFields(prefix, values, options) {
 
     const limits = (authState && authState.limits) || { max_ram_gb: 4, max_cpu: 1, cores: 1 };
@@ -18,6 +19,8 @@ function serverFields(prefix, values, options) {
     const box = el("div", "form-grid");
     const resources = (options && options.resources) || box;
     const picker = !!(options && options.picker);
+    const cards = picker || !!(options && options.cards);
+    const sliders = picker || !!(options && options.sliders);
 
     // Titulo numerado de cada parte del formulario de crear
     const section = function(n, key) {
@@ -87,13 +90,19 @@ function serverFields(prefix, values, options) {
         });
     };
 
-    if (picker) {
+    // Solo los tipos que ofrece el select (un servidor no cambia de edicion)
+    const offered = Array.from(type.options).map(function(o) { return o.value; });
+
+    if (cards && !isModpackServer) {
         typeWrap.classList.add("type-field");
-        typeWrap.querySelector(".field-label").hidden = true;
+        typeWrap.querySelector(".field-label").hidden = picker;
         type.hidden = true;
 
         SERVER_TYPE_CARDS.forEach(function([value, color]) {
+            if (offered.indexOf(value) < 0) return;
+
             const card = el("button", "type-card");
+            card.disabled = type.disabled;
             card.type = "button";
             card.dataset.value = value;
 
@@ -170,8 +179,8 @@ function serverFields(prefix, values, options) {
         ? t("form.cpuHintMax", { max: limits.max_cpu })
         : t("form.cpuHint", { cores: limits.cores }), resources);
 
-    // Al crear, una barra junto a cada numero para elegir mas rapido
-    if (picker) {
+    // Una barra junto a cada numero para elegir mas rapido
+    if (sliders) {
         [ram, cpu].forEach(function(input) {
             const range = el("input", "range-input");
             range.type = "range";

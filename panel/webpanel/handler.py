@@ -51,7 +51,8 @@ from .mods import (
     set_modpack,
 )
 from .addons import (
-    addon_icon, addons_state, cf_addon_search, cf_install, remove_addon, toggle_addon, upload_addon,
+    addon_icon, addons_state, cf_addon_search, cf_install, remove_addon, set_textures_required, toggle_addon,
+    upload_addon,
 )
 from .skins import PLAYER_NAME, player_head, player_skin
 from .mod_versions import modpack_versions, project_versions, set_modpack_version, set_project_version
@@ -666,6 +667,9 @@ class Handler(BaseHTTPRequestHandler):
 
         elif path == "/addons/remove":
             self.send_json(remove_addon(self.json_body(), user))
+
+        elif path == "/addons/textures":
+            self.send_json(set_textures_required(self.json_body(4096), user))
 
         elif path == "/addons/install":
             self.send_json(cf_install(self.json_body(4096), user))

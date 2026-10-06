@@ -37,35 +37,32 @@ function renderServerConfig(force) {
     box.textContent = "";
 
     const resources = el("div", "form-grid");
-    const main = serverFields("cfg", info, { resources: resources });
+    const main = serverFields("cfg", info, { resources: resources, cards: true, sliders: true });
 
-    const auto = el("div", "form-grid");
+    // Encendido y apagado automatico: interruptor y minutos con atajos
+    const auto = el("div", "set-list");
+    const autostop = toggleInput("cfgAutostop", info.autostop);
 
-    const check = function(id, label, checked) {
-        const wrap = el("label", "un-check");
-        const node = el("input");
-        node.type = "checkbox";
-        node.id = id;
-        node.checked = checked;
-        wrap.append(node, document.createTextNode(" " + label));
-        auto.append(wrap);
-        return node;
+    const idle = el("input", "input quick-input");
+    idle.id = "cfgIdle";
+    idle.type = "number";
+    idle.min = 1;
+    idle.max = 1440;
+    idle.value = info.idle_minutes;
+
+    const idlePicks = quickPicks(idle, [5, 10, 15, 30, 60], function(n) { return t("cfg.minutesShort", { n: n }); });
+
+    auto.append(settingRow(t("cfg.autostop"), t("cfg.autostopDesc"), autostop),
+        settingRow(t("cfg.idle"), t("cfg.idleDesc"), idlePicks));
+
+    // Sin apagado automatico los minutos no aplican
+    const refreshAuto = function() {
+        idle.disabled = !autostop.checked;
+        idlePicks.classList.toggle("disabled", !autostop.checked);
     };
 
-    const number = function(id, label, value, min, max) {
-        const wrap = el("label", "field");
-        const node = el("input", "input");
-        node.id = id;
-        node.type = "number";
-        if (min !== undefined) { node.min = min; node.max = max; }
-        node.value = value;
-        wrap.append(el("span", "field-label", label), node);
-        auto.append(wrap);
-        return node;
-    };
-
-    check("cfgAutostop", t("cfg.autostop"), info.autostop);
-    number("cfgIdle", t("cfg.idle"), info.idle_minutes, 1, 1440);
+    autostop.addEventListener("change", refreshAuto);
+    refreshAuto();
 
     box.append(
         settingsCard(t("cfg.cardServer"), [main, el("div", "field-hint", t("cfg.rebuildHint"))], "server"),

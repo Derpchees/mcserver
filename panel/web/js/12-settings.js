@@ -45,7 +45,7 @@ const BEDROCK_SETTINGS_GROUPS = [
     {
         id: "players",
         keys: ["max-players", "allow-list", "online-mode", "default-player-permission-level",
-            "texturepacks-required"]
+            "texturepack-required"]
     }
 ];
 
@@ -54,6 +54,13 @@ const BEDROCK_SETTINGS_TYPES = {
     "view-distance": { type: "int", min: 5, max: 96 },
     "tick-distance": { type: "int", min: 4, max: 12 },
     "default-player-permission-level": { type: "enum", options: ["visitor", "member", "operator"] }
+};
+
+// Iconos de las tarjetas de reglas del juego
+const SETTINGS_GROUP_ICONS = {
+    game: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="6" width="20" height="12" rx="4"/><path d="M6 12h4M8 10v4M15 11h.01M18 13h.01"/></svg>',
+    world: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/></svg>',
+    players: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg>'
 };
 
 let settingsSaved = null;
@@ -144,7 +151,8 @@ function settingControl(key) {
             renderSettingsBar();
         };
 
-        return select;
+        // Pocas opciones: botones juntos en lugar de una lista
+        return info.options.length <= 4 ? segmentedFromSelect(select) : select;
     }
 
     const input = el("input", "input set-input" + (info.type === "text" ? " wide" : ""));
@@ -194,7 +202,11 @@ function renderSettings() {
         // Juego y Mundo van juntos; Jugadores y acceso en su pestana
         card.dataset.settab = group.id === "players" ? "players" : "game";
         const head = el("div", "card-head");
-        head.append(el("h3", "card-title", t("set.group." + group.id)));
+        const title = el("h3", "card-title");
+        const icon = el("span", "card-title-icon");
+        icon.innerHTML = SETTINGS_GROUP_ICONS[group.id] || "";
+        title.append(icon, el("span", "", t("set.group." + group.id)));
+        head.append(title);
         card.append(head);
 
         const list = el("div", "set-list");

@@ -61,6 +61,7 @@ function renderAddons() {
     $("addonsNoKey").hidden = d.cf_enabled;
     $("addonsSearchForm").hidden = !d.cf_enabled;
     $("addonsRestart").hidden = !(d.running && addonsChangedOn.has(currentServer));
+    renderAddonOptions(d);
 
     const box = $("addonsList");
     box.textContent = "";
@@ -97,6 +98,34 @@ function renderAddons() {
 
     $("addonsAll").checked = d.addons.length > 0 && addonsRemove.size === d.addons.length;
     renderAddonsBar();
+}
+
+
+// Paquetes de recursos obligatorios: lo decide el dueno del servidor
+function renderAddonOptions(d) {
+
+    const box = $("addonsOptions");
+    box.textContent = "";
+
+    const toggle = toggleInput("addonsTextures", d.textures_required);
+    toggle.disabled = !d.has_properties;
+    toggle.onchange = async function() {
+        toggle.disabled = true;
+
+        try {
+            const data = await postJson("/addons/textures", { required: toggle.checked });
+            addonsChanged(data, toggle.checked ? t("addons.texturesOn") : t("addons.texturesOff"));
+        } catch (error) {
+            toggle.checked = !toggle.checked;
+            toggle.disabled = false;
+            showToast(error.message, "red");
+        }
+    };
+
+    box.append(settingRow(t("addons.texturesReq"), t("addons.texturesReqDesc"), toggle));
+
+    const note = el("div", "field-hint addons-note", d.has_properties ? t("addons.behaviorNote") : t("addons.startFirst"));
+    box.append(note);
 }
 
 

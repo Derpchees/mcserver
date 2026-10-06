@@ -26,6 +26,7 @@ function showSettingsTab(name) {
         btn.classList.toggle("active", btn.dataset.settab === name);
     });
 
+    renderSettingsIntro(name);
     applySettingsTab();
 
     if (currentServer && activeTab === "settings") {
@@ -34,6 +35,25 @@ function showSettingsTab(name) {
         } catch (error) {
         }
     }
+}
+
+
+function renderSettingsIntro(name) {
+
+    const box = $("settingsIntro");
+    const button = document.querySelector('#settingsTabs [data-settab="' + name + '"]');
+    box.textContent = "";
+    box.classList.toggle("is-danger", name === "danger");
+
+    const icon = el("div", "set-intro-icon");
+    const svg = button && button.querySelector("svg");
+    if (svg) icon.append(svg.cloneNode(true));
+
+    const text = el("div", "set-intro-text");
+    text.append(el("div", "set-intro-title", t("settab." + name)),
+        el("div", "set-intro-desc", t("settab.desc." + name)));
+
+    box.append(icon, text);
 }
 
 

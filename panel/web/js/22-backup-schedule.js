@@ -57,7 +57,7 @@ function intervalField(id, label, hours, allowNever) {
     unit.onchange = refresh;
     refresh();
 
-    row.append(number, unit);
+    row.append(number, segmentedFromSelect(unit));
     return backupField(label, row);
 }
 
@@ -75,12 +75,9 @@ function backupSection(info) {
 
     const grid = el("div", "form-grid");
 
-    const enabled = el("label", "un-check");
-    const box = el("input");
-    box.type = "checkbox";
-    box.id = "cfgBackups";
-    box.checked = !!info.backups;
-    enabled.append(box, document.createTextNode(" " + t("cfg.backups")));
+    const box = toggleInput("cfgBackups", info.backups);
+    const enabled = el("div", "set-list");
+    enabled.append(settingRow(t("cfg.backups"), t("cfg.backupsDesc"), box));
 
     const start = el("input", "input");
     start.type = "time";
@@ -99,12 +96,11 @@ function backupSection(info) {
     keep.value = Math.min(BACKUP_KEEP_MAX, Math.max(1, info.backup_keep || BACKUP_KEEP_MAX));
 
     grid.append(
-        enabled,
         backupField(t("cfg.backupTime"), start),
         intervalField("cfgBackupEvery", t("cfg.everyOn"), info.backup_every_hours || 24, false),
         intervalField("cfgBackupEveryOff", t("cfg.everyOff"),
             info.backup_every_hours_off === undefined ? 24 : info.backup_every_hours_off, true),
-        backupField(t("cfg.backupKeep"), keep)
+        backupField(t("cfg.backupKeep"), segmentedFromSelect(keep))
     );
 
     // Las opciones no aplican si los respaldos estan desactivados
@@ -117,7 +113,7 @@ function backupSection(info) {
     box.onchange = refresh;
     refresh();
 
-    return [grid, el("div", "field-hint", t("cfg.backupHint"))];
+    return [enabled, grid, el("div", "field-hint", t("cfg.backupHint"))];
 }
 
 
