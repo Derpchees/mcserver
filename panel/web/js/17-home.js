@@ -87,7 +87,7 @@ function renderServers(servers) {
         if (server.running && server.players > 0) {
             server.names.slice(0, 6).forEach(function(name) {
                 const head = document.createElement("img");
-                head.src = "https://mc-heads.net/avatar/" + encodeURIComponent(name) + "/24";
+                head.src = playerHeadUrl(name, 24, server.id);
                 head.alt = name;
                 head.title = name;
                 players.append(head);

@@ -10,8 +10,9 @@ let configDirty = false;
 let configServer = null;
 
 
-function settingsCard(title, nodes) {
+function settingsCard(title, nodes, tab) {
     const card = el("div", "card");
+    card.dataset.settab = tab;
     const head = el("div", "card-head");
     head.append(el("h3", "card-title", title));
     card.append(head);
@@ -67,11 +68,13 @@ function renderServerConfig(force) {
     number("cfgIdle", t("cfg.idle"), info.idle_minutes, 1, 1440);
 
     box.append(
-        settingsCard(t("cfg.cardServer"), [main, el("div", "field-hint", t("cfg.rebuildHint"))]),
-        settingsCard(t("cfg.cardResources"), [resources]),
-        settingsCard(t("cfg.automation"), [auto]),
-        settingsCard(t("cfg.backupSection"), backupSection(info))
+        settingsCard(t("cfg.cardServer"), [main, el("div", "field-hint", t("cfg.rebuildHint"))], "server"),
+        settingsCard(t("cfg.cardResources"), [resources], "server"),
+        settingsCard(t("cfg.automation"), [auto], "auto"),
+        settingsCard(t("cfg.backupSection"), backupSection(info), "auto")
     );
+
+    applySettingsTab();
 
     // Solo los cambios hechos por la persona (no los que hace el codigo al cargar listas)
     box.oninput = box.onchange = function() {

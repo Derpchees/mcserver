@@ -272,7 +272,7 @@ function updateOnline(running, data) {
 
         const img = document.createElement("img");
         img.alt = "";
-        img.src = "https://mc-heads.net/avatar/" + encodeURIComponent(name) + "/48";
+        img.src = playerHeadUrl(name, 48);
         img.onerror = function() { img.remove(); };
         avatar.append(img);
 

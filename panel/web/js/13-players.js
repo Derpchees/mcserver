@@ -164,11 +164,11 @@ function renderPlayers() {
         const row = el("div", "pl-row" + (player.online ? " online" : ""));
 
         const avatar = el("span", "avatar pl-avatar", player.name.charAt(0).toUpperCase());
-        // Las caras de mc-heads.net son de cuentas de Java
+        // Las caras son de cuentas de Java (o del mod de skins del servidor)
         if (playersData.edition !== "bedrock") {
             const img = document.createElement("img");
             img.alt = "";
-            img.src = "https://mc-heads.net/avatar/" + encodeURIComponent(player.name) + "/64";
+            img.src = playerHeadUrl(player.name, 64);
             img.onerror = function() { img.remove(); };
             avatar.append(img);
         }
@@ -523,7 +523,7 @@ async function openPlayer(name, focus) {
 
 async function startSkin(stage, canvas, name) {
 
-    const skinUrl = "https://mc-heads.net/skin/" + encodeURIComponent(name);
+    const skinUrl = playerSkinUrl(name);
 
     const fallback = function() {
         stage.textContent = "";

@@ -38,7 +38,10 @@ function showTab(name) {
     });
 
     try {
-        history.replaceState(null, "", "#/s/" + currentServer + (name === "panel" ? "" : "/" + name));
+        // Ajustes conserva su pestana (#/s/1/settings/game)
+        const sub = name === "settings" ? settingsTabFromHash() : "server";
+        history.replaceState(null, "", "#/s/" + currentServer + (name === "panel" ? "" : "/" + name)
+            + (sub !== "server" ? "/" + sub : ""));
     } catch (error) {
     }
 

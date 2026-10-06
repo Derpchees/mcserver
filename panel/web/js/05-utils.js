@@ -64,3 +64,15 @@ function iconButton(icon, title, onClick, danger) {
     };
     return btn;
 }
+
+
+// Cara y skin de un jugador: el panel da la del mod de skins del servidor
+// (la que se ve en el juego) o manda a mc-heads.net (la de Mojang)
+function playerHeadUrl(name, size, serverId) {
+    return "/s/" + (serverId || currentServer) + "/head?name=" + encodeURIComponent(name) + "&size=" + size;
+}
+
+
+function playerSkinUrl(name) {
+    return "/s/" + currentServer + "/skin?name=" + encodeURIComponent(name);
+}

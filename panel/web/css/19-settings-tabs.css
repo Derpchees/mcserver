@@ -1,0 +1,11 @@
+/* ---------- Pestanas de Ajustes del servidor ---------- */
+/* Usan el estilo de las de Administracion (.admin-tabs, .adm-off) */
+
+#settingsTabs .tab-danger.active,
+#settingsTabs .tab-danger:hover {
+    color: var(--red);
+}
+
+#settingsTabs .tab-danger.active {
+    background: var(--red-bg);
+}

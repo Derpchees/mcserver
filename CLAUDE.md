@@ -51,7 +51,8 @@ panel/
 - Los JS son **scripts clásicos concatenados**, no módulos ES: el HTML usa `onclick="..."` con funciones globales. `99-start.js` debe seguir siendo el último.
 - Cuidado con `const`/`let` de nivel superior usados por código que se ejecuta al cargar en un archivo anterior (zona muerta temporal). Las declaraciones `function` sí se elevan en todo el bundle.
 - `MCPANEL_DEV=1` hace que el panel relea `web/` en cada petición.
-- Idioma, tema y campana viven en `#prefsBox`: con sesion se mudan al menu de la cuenta. Administracion usa pestanas (`data-admtab`, `#/admin/<pestana>`). Al cambiar de vista `route()` cierra cualquier ventana (`closeModal`).
+- Idioma, tema y campana viven en `#prefsBox`: con sesion se mudan al menu de la cuenta. Administracion y Ajustes del servidor usan pestanas (`data-admtab`, `#/admin/<pestana>`; `data-settab`, `#/s/<id>/settings/<pestana>`). Al cambiar de vista `route()` cierra cualquier ventana (`closeModal`).
+- Caras y skins de jugadores: `playerHeadUrl` / `playerSkinUrl` (el panel usa la skin de Quick Skin o la de Mojang; `webpanel/skins.py`), nunca mc-heads.net directo.
 - Ayudas comunes: `$`, `el`, `t`, `tn`, `api`, `postJson`, `openModal`, `confirmDialog`, `doubleConfirm`, `showToast`, `formatBytes`.
 
 ### Detalles importantes del backend

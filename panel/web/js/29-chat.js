@@ -63,7 +63,7 @@ function chatAvatar(name) {
     const avatar = el("span", "avatar chat-avatar", name.charAt(0).toUpperCase());
     const img = document.createElement("img");
     img.alt = "";
-    img.src = "https://mc-heads.net/avatar/" + encodeURIComponent(name) + "/32";
+    img.src = playerHeadUrl(name, 32);
     img.onerror = function() { img.remove(); };
     avatar.append(img);
 

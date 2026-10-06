@@ -53,6 +53,7 @@ from .mods import (
 from .addons import (
     addon_icon, addons_state, cf_addon_search, cf_install, remove_addon, toggle_addon, upload_addon,
 )
+from .skins import PLAYER_NAME, player_head, player_skin
 from .mod_versions import modpack_versions, project_versions, set_modpack_version, set_project_version
 from .storage_admin import data_disk_ready, storage_action, storage_get, storage_options_for
 from .system_admin import system_action, system_get
@@ -319,9 +320,32 @@ class Handler(BaseHTTPRequestHandler):
         use_server(srv)
         manage = can_manage(user, srv)
 
-        # Publico: estado, recursos, consola y chat (si el admin lo permite)
-        if path in ("/api", "/stats", "/console", "/chat") and not public_ok(user):
+        # Publico: estado, recursos, consola, chat y caras (si el admin lo permite)
+        if path in ("/api", "/stats", "/console", "/chat", "/head", "/skin") and not public_ok(user):
             return self.deny(user)
+
+        # Cara o skin de un jugador: la del mod de skins del servidor o la de Mojang
+        if path in ("/head", "/skin"):
+            name = param("name")
+
+            if not PLAYER_NAME.match(name):
+                raise FileError("Nombre de jugador no válido")
+
+            try:
+                size = int(param("size", "48"))
+            except ValueError:
+                size = 48
+
+            data, url = player_head(srv, name, size) if path == "/head" else player_skin(srv, name)
+
+            if data:
+                self.send_body(data, "image/png")
+            else:
+                self.send_response(302)
+                self.send_header("Location", url)
+                self.send_header("Content-Length", "0")
+                self.end_headers()
+            return
 
         if path == "/console":
             self.send_body(console().encode("utf-8"), "text/plain; charset=utf-8")

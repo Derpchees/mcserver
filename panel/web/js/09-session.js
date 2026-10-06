@@ -104,6 +104,7 @@ function enterTab() {
         loadPlayers();
     } else if (activeTab === "settings") {
         $("settingsArea").hidden = false;
+        showSettingsTab(settingsTabFromHash());
         renderServerConfig();
 
         // No se pisan los cambios sin guardar al volver a la pestana

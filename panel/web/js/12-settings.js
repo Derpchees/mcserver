@@ -191,6 +191,8 @@ function renderSettings() {
     (settingsEdition === "bedrock" ? BEDROCK_SETTINGS_GROUPS : SETTINGS_GROUPS).forEach(function(group) {
 
         const card = el("div", "card");
+        // Juego y Mundo van juntos; Jugadores y acceso en su pestana
+        card.dataset.settab = group.id === "players" ? "players" : "game";
         const head = el("div", "card-head");
         head.append(el("h3", "card-title", t("set.group." + group.id)));
         card.append(head);
@@ -220,6 +222,7 @@ function renderSettings() {
 
     $("settingsNote").textContent = settingsRunning ? "" : t("set.offNote");
     $("settingsNote").hidden = settingsRunning;
+    applySettingsTab();
 
     renderSettingsBar();
 }
