@@ -216,13 +216,14 @@ async function uploadAddons(fileList) {
 
     // Uno por uno: cada archivo se instala al terminar de subir
     for (const file of files) {
-        if (!/\.(mcaddon|mcpack|zip)$/i.test(file.name)) {
+        if (!/\.(mcaddon|mcpack|mcworld|zip)$/i.test(file.name)) {
             showToast(file.name + ": " + t("addons.badFile"), "red");
             continue;
         }
 
         const data = await uploadAddon(file);
-        if (data) addonsChanged(data, t("addons.installedToast", { names: installedNames(data) }));
+        if (data && data.id && !data.installed) showToast(t("addons.mapAdded", { name: data.id }), "green");
+        else if (data) addonsChanged(data, t("addons.installedToast", { names: installedNames(data) }));
     }
 }
 
@@ -287,6 +288,16 @@ function uploadAddon(file) {
 
 // ------------------------------------------------------------
 // CurseForge (todo es gratis)
+
+// Shaders y mapas tienen su aclaracion bajo la busqueda
+function addonsKindChanged() {
+    const kind = $("addonsKind").value;
+    const hint = $("addonsKindHint");
+    hint.textContent = kind === "shaders" ? t("addons.shadersHint") : kind === "maps" ? t("addons.mapsHint") : "";
+    hint.hidden = !hint.textContent;
+    searchAddons(null, 0);
+}
+
 
 async function searchAddons(event, page) {
 
@@ -359,7 +370,10 @@ async function installAddon(item, button) {
 
     try {
         const data = await postJson("/addons/install", { id: item.id });
-        addonsChanged(data, t("addons.installedToast", { names: installedNames(data) || item.name }));
+
+        // Un mapa queda en la lista de mundos (Ajustes, Mundo), sin activarse
+        if (data.world) showToast(t("addons.mapAdded", { name: data.world }), "green");
+        else addonsChanged(data, t("addons.installedToast", { names: installedNames(data) || item.name }));
         button.textContent = t("addons.reinstall");
         button.className = "btn btn-small btn-ghost";
     } catch (error) {

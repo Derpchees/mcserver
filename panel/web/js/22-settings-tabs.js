@@ -7,7 +7,7 @@
 // (#/s/1/settings/game) para poder abrirla directo. Los cambios sin
 // guardar de todas las pestanas se guardan juntos (barra de abajo).
 
-const SETTINGS_TABS = ["server", "auto", "game", "players", "danger"];
+const SETTINGS_TABS = ["server", "auto", "game", "players", "world", "danger"];
 let settingsTab = "server";
 
 
@@ -65,5 +65,5 @@ function applySettingsTab() {
 
     // El aviso de "servidor apagado" es de las reglas del juego
     const note = $("settingsNote");
-    if (note) note.classList.toggle("adm-off", settingsTab !== "game" && settingsTab !== "players");
+    if (note) note.classList.toggle("adm-off", ["game", "players", "world"].indexOf(settingsTab) < 0);
 }

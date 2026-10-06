@@ -1,0 +1,92 @@
+/* ---------- Ajustes: pestana Mundo y aviso de servidor nuevo ---------- */
+
+.world-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-bottom: 14px;
+}
+
+.world-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 12px;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: var(--surface-2);
+}
+
+.world-row.active {
+    border-color: color-mix(in srgb, var(--green) 45%, var(--border));
+    background: linear-gradient(120deg, var(--green-bg), transparent 80%), var(--surface-2);
+}
+
+.world-text {
+    flex: 1;
+    min-width: 0;
+}
+
+.world-name {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-weight: 600;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.world-meta {
+    margin-top: 2px;
+    color: var(--muted);
+    font-size: 12.5px;
+}
+
+.world-actions,
+.world-tools {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.world-tools {
+    margin-bottom: 8px;
+}
+
+#worldArea .upload {
+    margin-top: 10px;
+}
+
+/* Servidor nuevo sin encender */
+.setup-banner {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    border-color: color-mix(in srgb, var(--blue) 40%, var(--border));
+    background: linear-gradient(120deg, color-mix(in srgb, var(--blue) 12%, transparent), transparent 70%), var(--surface);
+}
+
+.setup-banner-text {
+    flex: 1;
+    min-width: 0;
+}
+
+.setup-banner-title {
+    font-weight: 700;
+    font-size: 15px;
+    margin-bottom: 2px;
+}
+
+@media (max-width: 640px) {
+    .setup-banner,
+    .world-row {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .world-actions .btn,
+    .setup-banner .toolbar .btn {
+        flex: 1;
+    }
+}

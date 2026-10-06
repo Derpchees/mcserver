@@ -26,11 +26,13 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import mcpanel_core as core  # noqa: E402
 import announce  # noqa: E402
 import backup_schedule  # noqa: E402
+import server_setup  # noqa: E402
 import runtime  # noqa: E402
 from runtime import jobs  # noqa: E402
 from storage import watch  # noqa: E402
 from push import sender as push_sender  # noqa: E402
 from bedrock import console as bedrock_console  # noqa: E402
+from bedrock import experiments as bedrock_experiments  # noqa: E402
 from bedrock import firstboot as bedrock_firstboot  # noqa: E402
 from bedrock import signaling  # noqa: E402
 
@@ -165,12 +167,19 @@ class Proxy:
                 return
 
             if status != "running" and signaling.is_status_request(head):
-                writer.write(signaling.offline_response(srv, "off" if watch.data_ready() else "nodisk"))
+                state = "setup" if server_setup.pending(srv) else ("off" if watch.data_ready() else "nodisk")
+                writer.write(signaling.offline_response(srv, state))
                 await writer.drain()
                 writer.close()
                 return
 
         log(srv, "proxy.log", "PETICION RECIBIDA | Minecraft estaba: " + status)
+
+        # Servidor nuevo: no se enciende hasta que lo enciendan desde el panel
+        if status != "running" and server_setup.pending(srv):
+            log(srv, "proxy.log", "SIN INICIO | servidor nuevo sin configurar")
+            writer.close()
+            return
 
         if status != "running" and not watch.data_ready():
             log(srv, "proxy.log", "SIN INICIO | el disco de los servidores no esta disponible")
@@ -332,6 +341,13 @@ class Monitor:
             # Bedrock nuevo: se abre la lista de permitidos (viene activada y vacia)
             if core.is_bedrock(srv):
                 await in_thread(bedrock_firstboot.run, srv, core.MC_UID, core.MC_GID)
+
+                # Mundo recien creado con experimentos pedidos: se reinicia una vez
+                if bedrock_experiments.needs_restart(srv):
+                    log(srv, "autostop.log", "EXPERIMENTOS | reiniciando para activarlos en el mundo nuevo")
+                    set_hint(srv, "restart")
+                    await in_thread(runtime.restart, srv)
+                    return
 
         if status != "running":
             self.idle_since.pop(srv.id, None)

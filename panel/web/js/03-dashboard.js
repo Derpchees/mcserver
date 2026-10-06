@@ -126,6 +126,9 @@ async function update() {
         $("players").textContent = data.running && data.autostop.players ? " · " + data.autostop.players : "";
 
         $("start").disabled = data.running || (data.server && data.server.state !== "ready");
+
+        // Solo quien lo administra ve el aviso de servidor nuevo
+        $("setupBanner").hidden = !(canManageCurrent && data.server && data.server.setup_pending && !data.running);
         $("stop").disabled = !data.running;
         $("restart").disabled = !data.running;
 

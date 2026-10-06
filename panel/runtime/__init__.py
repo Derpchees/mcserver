@@ -23,8 +23,22 @@ def running(srv):
     return backend.state(srv)[0] == "running"
 
 
+def prepare(srv):
+    # Lo que solo se puede cambiar con el servidor apagado (experimentos de Bedrock)
+    if core.is_bedrock(srv):
+        from bedrock import experiments
+
+        try:
+            experiments.apply_pending(srv)
+        except (OSError, ValueError):
+            pass
+
+
 def start(srv):
     # (ok, error)
+    if not running(srv):
+        prepare(srv)
+
     return backend.start(srv)
 
 
@@ -33,7 +47,9 @@ def stop(srv):
 
 
 def restart(srv):
-    return backend.restart(srv)
+    # Apagar y encender (no "docker restart"): asi pasa por prepare
+    stop(srv)
+    return start(srv)
 
 
 def rcon(srv, args, timeout=20):

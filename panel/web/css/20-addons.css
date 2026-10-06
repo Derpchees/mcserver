@@ -50,13 +50,6 @@
     flex: none;
 }
 
-/* Jugador de Bedrock: sin skin (las de mc-heads.net son de Java) */
-.pl-skin-letter {
-    font-size: 96px;
-    font-weight: 800;
-    color: var(--muted);
-}
-
 @media (max-width: 560px) {
     .addons-search {
         flex-wrap: wrap;

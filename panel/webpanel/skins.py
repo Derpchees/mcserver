@@ -5,6 +5,10 @@
 # en <mundo>/quickskin) se usa esa: es la que se ve dentro del juego. Si
 # no, la oficial de Mojang, que el panel baja y guarda unas horas.
 # mc-heads.net queda solo de respaldo: su cache a veces da a Steve.
+#
+# Bedrock no publica las skins: se usa la que GeyserMC tenga guardada de
+# ese jugador (si alguna vez entro a un servidor con Geyser) y, si no, el
+# personaje clasico (Steve o Alex, siempre el mismo para cada jugador).
 # La cara se recorta aqui (capa de la cara + capa del casco), sin
 # librerias de imagen.
 #
@@ -127,7 +131,81 @@ def mojang_skin(srv, name):
         return path
 
 
+# ------------------------------------------------------------
+# Bedrock: skin guardada por GeyserMC (por XUID) o el personaje clasico
+
+GEYSER_SKIN = "https://api.geysermc.org/v2/skin/%s"
+DEFAULT_SKINS = {
+    "steve": "https://textures.minecraft.net/texture/1a4af718455d4aab528e7a61f86fa25e6a369d1768dcb13f7df319a713eb810b",
+    "alex": "https://textures.minecraft.net/texture/3b60a1f6d562f52aaebbf1434f1de147933a3affe0e764fa49ea057536623cd3"
+}
+
+
+def cached_download(path, producer):
+    # Guarda lo descargado unas horas; si no hay, lo recuerda tambien
+    missing = path + ".none"
+
+    with _mojang_lock:
+        for candidate, ok in ((path, True), (missing, False)):
+            try:
+                if time.time() - os.path.getmtime(candidate) < SKIN_TTL:
+                    return candidate if ok else None
+            except OSError:
+                pass
+
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+
+        try:
+            data = producer()
+        except Exception:
+            data = None
+
+        if not data:
+            open(missing, "w").close()
+            return None
+
+        with open(path + ".tmp", "wb") as f:
+            f.write(data[:1024 * 1024])
+
+        os.replace(path + ".tmp", path)
+        return path
+
+
+def bedrock_xuid(srv, name):
+    # Los nombres que el panel vio en el log (xuid -> nombre)
+    names = read_json_file(os.path.join(srv.state_dir, "bedrock-players.json"), {})
+    return next((xuid for xuid, known in names.items() if known.lower() == name.lower() and xuid.isdigit()), None)
+
+
+def geyser_skin(xuid):
+    def producer():
+        data = json.loads(fetch_url(GEYSER_SKIN % xuid, timeout=8))
+        texture = str(data.get("texture_id", ""))
+
+        if not re.match(r"^[0-9a-f]{20,80}$", texture):
+            return None
+
+        return fetch_url("https://textures.minecraft.net/texture/" + texture, timeout=8)
+
+    return cached_download(os.path.join(core.STATE_ROOT, "skins", "bedrock-%s.png" % xuid), producer)
+
+
+def default_skin(name):
+    # Como Minecraft con las cuentas sin skin: Steve o Alex segun el jugador
+    kind = "alex" if sum(name.lower().encode("utf-8")) % 2 else "steve"
+    return cached_download(os.path.join(core.STATE_ROOT, "skins", "default-%s.png" % kind),
+                           lambda: fetch_url(DEFAULT_SKINS[kind], timeout=8))
+
+
+def bedrock_skin(srv, name):
+    xuid = bedrock_xuid(srv, name)
+    return (geyser_skin(xuid) if xuid else None) or default_skin(name)
+
+
 def skin_path(srv, name):
+    if core.is_bedrock(srv):
+        return bedrock_skin(srv, name)
+
     return custom_skin(srv, name) or mojang_skin(srv, name)
 
 

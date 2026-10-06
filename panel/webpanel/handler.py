@@ -13,6 +13,7 @@ import urllib.parse
 import http.cookies
 
 import mcpanel_core as core
+from bedrock import console as bedrock_console
 
 from .common import FileError, log_server_action, set_stop_hint, use_server
 from .status import console, docker_action, send_command, server_data
@@ -50,6 +51,8 @@ from .mods import (
     add_mods, cf_search, clear_modpack, MOD_KIND, modrinth_search, mods_state, remove_mods,
     set_modpack,
 )
+from .experiments import set_experiments
+from .worlds import activate_world, delete_world, regenerate, reset_dimension, upload_world, worlds_state
 from .addons import (
     addon_icon, addons_state, cf_addon_search, cf_install, remove_addon, set_textures_required, toggle_addon,
     upload_addon,
@@ -62,6 +65,15 @@ from sysadmin import localca
 from .webassets import web
 from .notify import push_events, push_key, push_subscribe, push_unsubscribe, set_notify_mute
 from . import pwa
+
+
+WORLD_ACTIONS = {
+    "/worlds/regenerate": regenerate,
+    "/worlds/delete": delete_world,
+    "/worlds/activate": activate_world,
+    "/worlds/reset": reset_dimension,
+    "/worlds/experiments": set_experiments
+}
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -329,7 +341,10 @@ class Handler(BaseHTTPRequestHandler):
         if path in ("/head", "/skin"):
             name = param("name")
 
-            if not PLAYER_NAME.match(name):
+            # Los nombres de Bedrock (gamertags) pueden llevar espacios
+            valid = bedrock_console.PLAYER_NAME if core.is_bedrock(srv) else PLAYER_NAME
+
+            if not valid.match(name):
                 raise FileError("Nombre de jugador no válido")
 
             try:
@@ -380,6 +395,9 @@ class Handler(BaseHTTPRequestHandler):
 
         elif path == "/addons":
             self.send_json(addons_state())
+
+        elif path == "/worlds":
+            self.send_json(worlds_state())
 
         elif path == "/addons/icon":
             self.send_body(addon_icon(param("uuid")), "image/png")
@@ -661,6 +679,14 @@ class Handler(BaseHTTPRequestHandler):
         elif path == "/addons/upload":
             length = int(self.headers.get("Content-Length", "0") or 0)
             self.send_json(upload_addon(self, param("name"), length, user))
+
+        # Mundos (Ajustes, pestana Mundo)
+        elif path == "/worlds/upload":
+            length = int(self.headers.get("Content-Length", "0") or 0)
+            self.send_json(upload_world(self, param("name"), length, user))
+
+        elif path in WORLD_ACTIONS:
+            self.send_json(WORLD_ACTIONS[path](self.json_body(4096), user))
 
         elif path == "/addons/toggle":
             self.send_json(toggle_addon(self.json_body(4096), user))

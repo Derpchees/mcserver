@@ -110,6 +110,8 @@ function enterTab() {
         // No se pisan los cambios sin guardar al volver a la pestana
         if (settingsSaved && Object.keys(settingsChanges()).length) renderSettings();
         else loadSettings();
+
+        loadWorlds();
     }
 }
 

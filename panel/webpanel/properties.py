@@ -36,7 +36,25 @@ SETTINGS = {
     "white-list": ("bool", None),
     "enforce-whitelist": ("bool", None),
     "online-mode": ("bool", None),
-    "hide-online-players": ("bool", None)
+    "hide-online-players": ("bool", None),
+
+    # Como se genera el mundo: solo cuenta antes de crearlo (o al regenerarlo)
+    "level-seed": ("text", 64),
+    "level-type": ("enum", ["minecraft:normal", "minecraft:flat", "minecraft:large_biomes", "minecraft:amplified"]),
+    "generate-structures": ("bool", None)
+}
+
+# Valores de Minecraft cuando la clave no esta en server.properties (por
+# ejemplo antes del primer arranque): el panel los muestra y se pueden
+# cambiar antes de encenderlo
+JAVA_DEFAULTS = {
+    "difficulty": "easy", "gamemode": "survival", "force-gamemode": "false", "hardcore": "false",
+    "pvp": "true", "allow-flight": "false", "enable-command-block": "false", "spawn-protection": "16",
+    "player-idle-timeout": "0", "spawn-monsters": "true", "spawn-animals": "true", "spawn-npcs": "true",
+    "allow-nether": "true", "view-distance": "10", "simulation-distance": "10", "max-players": "20",
+    "white-list": "false", "enforce-whitelist": "false", "online-mode": "true",
+    "hide-online-players": "false", "level-seed": "", "level-type": "minecraft:normal",
+    "generate-structures": "true"
 }
 
 # Se aplican al momento por RCON; el resto necesita reiniciar
@@ -60,7 +78,28 @@ BEDROCK_SETTINGS = {
     "allow-list": ("bool", None),
     "online-mode": ("bool", None),
     "default-player-permission-level": ("enum", ["visitor", "member", "operator"]),
-    "texturepack-required": ("bool", None)
+    "texturepack-required": ("bool", None),
+    "level-seed": ("text", 64)
+}
+
+# El server.properties que trae Bedrock (sin la red, que pone el panel o la
+# imagen). Si se configura antes del primer arranque se escribe completo:
+# despues nadie lo completaria.
+BEDROCK_DEFAULTS = {
+    "gamemode": "survival", "force-gamemode": "false", "difficulty": "easy", "allow-cheats": "false",
+    "max-players": "10", "online-mode": "true", "allow-list": "false", "enable-lan-visibility": "true",
+    "view-distance": "32", "tick-distance": "4", "player-idle-timeout": "30", "max-threads": "8",
+    "level-name": "Bedrock level", "level-seed": "", "default-player-permission-level": "member",
+    "texturepack-required": "false", "content-log-file-enabled": "false",
+    "content-log-console-output-enabled": "false", "content-log-level": "info",
+    "compression-threshold": "1", "compression-algorithm": "zlib",
+    "server-authoritative-movement-strict": "false", "server-authoritative-dismount-strict": "false",
+    "server-authoritative-entity-interactions-strict": "false",
+    "player-position-acceptance-threshold": "0.5", "player-movement-action-direction-threshold": "0.85",
+    "server-authoritative-block-breaking-pick-range-scalar": "1.5", "chat-restriction": "None",
+    "disable-player-interaction": "false", "client-side-chunk-generation-enabled": "true",
+    "block-network-ids-are-hashes": "true", "disable-persona": "false", "disable-custom-skins": "false",
+    "server-build-radius-ratio": "Disabled"
 }
 
 BEDROCK_LIVE = {
@@ -97,8 +136,39 @@ def escape_property(value):
     return "".join(out)
 
 
+def properties_path(srv=None):
+    return os.path.join((srv or S()).data_dir, "server.properties")
+
+
+def defaults(srv=None):
+    return BEDROCK_DEFAULTS if core.is_bedrock(srv or S()) else JAVA_DEFAULTS
+
+
+def ensure_properties(srv=None):
+    # Antes del primer arranque no hay server.properties: se crea para poder
+    # configurar el servidor sin encenderlo (Bedrock completo, Java lo completa)
+    srv = srv or S()
+    path = properties_path(srv)
+
+    if os.path.isfile(path):
+        return path
+
+    lines = ["%s=%s" % (k, v) for k, v in BEDROCK_DEFAULTS.items()] if core.is_bedrock(srv) else []
+
+    if core.is_bedrock(srv) and srv.extra_env.get("SERVER_NAME"):
+        lines.insert(0, "server-name=" + escape_property(srv.extra_env["SERVER_NAME"]))
+
+    os.makedirs(srv.data_dir, exist_ok=True)
+
+    with open(path, "w", encoding="utf-8") as f:
+        f.write("\n".join(lines) + "\n")
+
+    give_to_server(path)
+    return path
+
+
 def read_properties():
-    values = {}
+    values = dict(defaults())
 
     for line in read_lines(os.path.join(S().data_dir, "server.properties")):
         if line.startswith("#") or "=" not in line:
@@ -160,9 +230,7 @@ def save_settings(changes):
     if not isinstance(changes, dict) or not changes:
         raise FileError("No hay cambios que guardar")
 
-    if not os.path.isfile(os.path.join(S().data_dir, "server.properties")):
-        raise FileError("No existe server.properties", 404)
-
+    ensure_properties()
     current = read_properties()
     updates = {}
 

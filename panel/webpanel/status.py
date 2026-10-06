@@ -9,6 +9,7 @@ import calendar
 
 import mcpanel_core as core
 import runtime
+import server_setup
 from bedrock import console as bedrock_console
 
 from .common import autostop_info, container_info, read_lines, S
@@ -171,6 +172,10 @@ def docker_action(name):
         }
 
     ok, error = commands[name](S())
+
+    # Encenderlo a mano termina la preparacion de un servidor nuevo
+    if ok and name in ("start", "restart"):
+        server_setup.clear(S())
 
     if ok:
         return {

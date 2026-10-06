@@ -18,6 +18,11 @@ const SETTINGS_GROUPS = [
         id: "players",
         keys: ["max-players", "white-list", "enforce-whitelist", "online-mode",
             "hide-online-players"]
+    },
+    {
+        // Como se genera el mundo (pestana Mundo): cuenta al crearlo o regenerarlo
+        id: "worldgen",
+        keys: ["level-seed", "level-type", "generate-structures"]
     }
 ];
 
@@ -29,7 +34,9 @@ const SETTINGS_TYPES = {
     "view-distance": { type: "int", min: 3, max: 32 },
     "simulation-distance": { type: "int", min: 3, max: 32 },
     "max-players": { type: "int", min: 1, max: 200 },
-    "motd": { type: "text", max: 59 }
+    "motd": { type: "text", max: 59 },
+    "level-seed": { type: "text", max: 64 },
+    "level-type": { type: "enum", options: ["minecraft:normal", "minecraft:flat", "minecraft:large_biomes", "minecraft:amplified"] }
 };
 
 // Bedrock tiene otras claves (BEDROCK_SETTINGS del servidor)
@@ -46,6 +53,10 @@ const BEDROCK_SETTINGS_GROUPS = [
         id: "players",
         keys: ["max-players", "allow-list", "online-mode", "default-player-permission-level",
             "texturepack-required"]
+    },
+    {
+        id: "worldgen",
+        keys: ["level-seed"]
     }
 ];
 
@@ -60,6 +71,7 @@ const BEDROCK_SETTINGS_TYPES = {
 const SETTINGS_GROUP_ICONS = {
     game: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="6" width="20" height="12" rx="4"/><path d="M6 12h4M8 10v4M15 11h.01M18 13h.01"/></svg>',
     world: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/></svg>',
+    worldgen: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m8 3 4 8 5-5 5 15H2L8 3z"/></svg>',
     players: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg>'
 };
 
@@ -199,8 +211,8 @@ function renderSettings() {
     (settingsEdition === "bedrock" ? BEDROCK_SETTINGS_GROUPS : SETTINGS_GROUPS).forEach(function(group) {
 
         const card = el("div", "card");
-        // Juego y Mundo van juntos; Jugadores y acceso en su pestana
-        card.dataset.settab = group.id === "players" ? "players" : "game";
+        // Juego y Mundo van juntos; Jugadores y la generacion del mundo en su pestana
+        card.dataset.settab = { players: "players", worldgen: "world" }[group.id] || "game";
         const head = el("div", "card-head");
         const title = el("h3", "card-title");
         const icon = el("span", "card-title-icon");

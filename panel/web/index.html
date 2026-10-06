@@ -336,6 +336,18 @@ try {
 
 <section id="tab-panel" class="tab-page" hidden>
 
+<!-- Servidor nuevo: no se enciende solo hasta que lo configuren y lo enciendan -->
+<div id="setupBanner" class="card setup-banner" hidden>
+<div class="setup-banner-text">
+<div class="setup-banner-title" data-i18n="setup.title">Your new server is ready to set up</div>
+<div class="set-desc" data-i18n="setup.desc">It won't start by itself, not even when someone tries to join. Pick the seed, rules, add-ons or mods first, and start it when you're ready.</div>
+</div>
+<div class="toolbar">
+<button class="btn btn-ghost btn-small" onclick="showTab('settings')" data-i18n="setup.settings">Open settings</button>
+<button class="btn btn-start btn-small" onclick="action('start')" data-i18n="setup.start">Start it now</button>
+</div>
+</div>
+
 <div class="card hero">
 
 <div>
@@ -762,7 +774,7 @@ onkeydown="onCommandKey(event)"
 </div>
 <p class="hint" data-i18n="addons.uploadDesc">Free .mcaddon or .mcpack files from CurseForge, MCPEDL or any other site. Paid Marketplace content can't be used on a server.</p>
 <label id="addonsDrop" class="addons-drop">
-<input id="addonsFile" type="file" accept=".mcaddon,.mcpack,.zip" multiple hidden onchange="uploadAddons(this.files); this.value = ''">
+<input id="addonsFile" type="file" accept=".mcaddon,.mcpack,.mcworld,.zip" multiple hidden onchange="uploadAddons(this.files); this.value = ''">
 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M17 8l-5-5-5 5"/><path d="M12 3v12"/></svg>
 <span data-i18n="addons.dropText">Drop files here or click to choose</span>
 </label>
@@ -776,9 +788,11 @@ onkeydown="onCommandKey(event)"
 </div>
 <div id="addonsNoKey" class="set-note" hidden data-i18n="addons.noKey">To search here the administrator adds a free CurseForge key in Administration. You can still upload add-ons downloaded from any site.</div>
 <form id="addonsSearchForm" class="pl-inline addons-search mods-search-form" onsubmit="searchAddons(event)">
-<select id="addonsKind" class="input addons-kind">
+<select id="addonsKind" class="input addons-kind" onchange="addonsKindChanged()">
 <option value="addons" data-i18n="addons.kindAddons">Add-ons</option>
 <option value="textures" data-i18n="addons.kindTextures">Texture packs</option>
+<option value="shaders" data-i18n="addons.kindShaders">Shaders</option>
+<option value="maps" data-i18n="addons.kindMaps">Maps</option>
 </select>
 <input id="addonsQuery" class="input" data-i18n-placeholder="addons.searchPh" placeholder="Search by name..." autocomplete="off">
 <select id="addonsSort" class="input mods-sort" data-i18n-title="mods.sortBy" title="Sort by" onchange="searchAddons(null, 0)">
@@ -789,6 +803,7 @@ onkeydown="onCommandKey(event)"
 </select>
 <button class="btn btn-start btn-small" type="submit" data-i18n="mods.search">Search</button>
 </form>
+<div id="addonsKindHint" class="field-hint" hidden></div>
 <div id="addonsResultsInfo" class="mods-results-info" hidden></div>
 <div id="addonsResults" class="mod-list mods-results-gap"></div>
 <div id="addonsPager" class="pager" hidden></div>
@@ -976,6 +991,10 @@ onkeydown="onCommandKey(event)"
 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg>
 <span data-i18n="settab.players">Players</span>
 </button>
+<button class="tab-btn" data-settab="world" onclick="showSettingsTab('world')">
+<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/></svg>
+<span data-i18n="settab.world">World</span>
+</button>
 <button class="tab-btn tab-danger" data-settab="danger" onclick="showSettingsTab('danger')">
 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4M12 17h.01"/></svg>
 <span data-i18n="settab.danger">Danger zone</span>
@@ -990,6 +1009,9 @@ onkeydown="onCommandKey(event)"
 <div id="serverConfig"></div>
 
 <div id="settingsGroups"></div>
+
+<!-- Pestana Mundo (22-worlds.js) -->
+<div id="worldArea"></div>
 
 <div class="card danger-zone" data-settab="danger">
 <div class="card-head">

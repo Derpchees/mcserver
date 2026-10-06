@@ -14,9 +14,9 @@ import mcpanel_core as core
 from bedrock.addons import Addons
 from bedrock.packs import PackError
 
-from .common import FileError, fetch_url, log_server_action, S
+from .common import cached, FileError, fetch_url, log_server_action, S
 from .mods import cf_get, page_number, SEARCH_PAGE
-from .properties import read_properties
+from .properties import ensure_properties, read_properties
 
 
 MAX_UPLOAD = 500 * 1024 ** 2
@@ -25,6 +25,7 @@ UUID = re.compile(r"^[0-9a-f-]{32,36}$")
 CF_GAME = 78022
 CF_CLASS = {"addons": 4984, "textures": 6929}
 CF_FILE_TYPES = (".mcaddon", ".mcpack", ".zip")
+WORLD_FILE_TYPES = (".mcworld", ".zip")
 
 # Orden de la busqueda (sortField de CurseForge)
 CF_SORT = {"relevance": 2, "downloads": 6, "updated": 3, "newest": 11}
@@ -50,7 +51,7 @@ def addons_state():
         "cf_enabled": bool(core.get_setting("cf_api_key")),
         # Lo elige el dueno: si los jugadores deben bajar los paquetes de recursos
         "textures_required": read_properties().get(TEXTURES_KEY, "") == "true",
-        "has_properties": os.path.isfile(os.path.join(S().data_dir, "server.properties")),
+        "has_properties": True,
         "installed_cf": sorted({str(i["source"].get("id")) for i in items
                                 if i["source"].get("provider") == "curseforge"})
     }
@@ -77,14 +78,10 @@ TEXTURES_KEY = "texturepack-required"
 
 
 def set_textures_required(data, user):
-    # Si el servidor nunca arranco no hay server.properties: no se crea uno
-    # a medias (la imagen ya no lo completaria)
+    # Antes del primer arranque se crea completo (ver properties.ensure_properties)
     store()
     on = bool(data.get("required"))
-    path = os.path.join(S().data_dir, "server.properties")
-
-    if not os.path.isfile(path):
-        raise FileError("Enciende el servidor una vez para que cree su configuración")
+    path = ensure_properties()
 
     with open(path, "r", encoding="utf-8", errors="replace") as f:
         lines = f.read().splitlines()
@@ -133,8 +130,14 @@ def install_file(path, user, source=None, group=""):
 def upload_addon(handler, name, length, user):
     name = os.path.basename(str(name or ""))
 
+    # Un .mcworld es un mapa: va a la lista de mundos
+    if name.lower().endswith(".mcworld"):
+        from .worlds import upload_world
+        store()
+        return upload_world(handler, name, length, user)
+
     if not name.lower().endswith(CF_FILE_TYPES):
-        raise FileError("Sube un archivo .mcaddon, .mcpack o .zip")
+        raise FileError("Sube un archivo .mcaddon, .mcpack, .mcworld o .zip")
 
     if length <= 0 or length > MAX_UPLOAD:
         raise FileError("El archivo es demasiado grande", 413)
@@ -204,21 +207,62 @@ def addon_icon(uuid):
 # CurseForge (Minecraft Bedrock): todo es gratis
 # ============================================================
 
+def cf_categories():
+    # Clases de Bedrock en CurseForge (add-ons, texturas, mapas...) y la
+    # categoria de shaders (dentro de texturas). Se buscan por nombre.
+    def producer():
+        found = {"classes": {}, "shaders": None}
+
+        for item in cf_get("/categories", {"gameId": CF_GAME}).get("data", []):
+            slug = str(item.get("slug", ""))
+
+            if item.get("isClass"):
+                found["classes"][slug] = item["id"]
+            elif "shader" in slug and item.get("classId") == CF_CLASS["textures"]:
+                found["shaders"] = item["id"]
+
+        return found
+
+    return cached("cf-bedrock-categories", producer)
+
+
+def cf_filter(kind):
+    # (classId, categoryId) de cada tipo de busqueda
+    if kind in CF_CLASS:
+        return CF_CLASS[kind], None
+
+    info = cf_categories()
+
+    if kind == "shaders" and info["shaders"]:
+        return CF_CLASS["textures"], info["shaders"]
+
+    if kind == "maps":
+        for slug in ("maps", "worlds", "mcworld"):
+            if slug in info["classes"]:
+                return info["classes"][slug], None
+
+    raise FileError("Búsqueda no válida")
+
+
 def cf_addon_search(kind, query, page=0, sort=""):
-    if kind not in CF_CLASS:
-        raise FileError("Búsqueda no válida")
+    class_id, category = cf_filter(kind)
 
     # CurseForge no deja pasar del resultado 10 000
     page = min(page_number(page), 10000 // SEARCH_PAGE - 1)
-    data = cf_get("/mods/search", {
+    params = {
         "gameId": CF_GAME,
-        "classId": CF_CLASS[kind],
+        "classId": class_id,
         "searchFilter": str(query or "")[:80],
         "sortField": CF_SORT.get(sort, 2),
         "sortOrder": "desc",
         "pageSize": SEARCH_PAGE,
         "index": page * SEARCH_PAGE
-    })
+    }
+
+    if category:
+        params["categoryId"] = category
+
+    data = cf_get("/mods/search", params)
 
     results = []
 
@@ -240,11 +284,11 @@ def cf_addon_search(kind, query, page=0, sort=""):
     return {"results": results, "page": page, "pages": max(1, -(-total // SEARCH_PAGE)), "total": total}
 
 
-def cf_release(project_id):
+def cf_release(project_id, types=CF_FILE_TYPES):
     # Los archivos de la version mas reciente: un .mcaddon, o los .mcpack
     # (comportamiento y recursos) que el autor subio juntos
     files = cf_get("/mods/%d/files" % project_id, {"pageSize": 50}).get("data", [])
-    files = [f for f in files if str(f.get("fileName", "")).lower().endswith(CF_FILE_TYPES)
+    files = [f for f in files if str(f.get("fileName", "")).lower().endswith(types)
              and f.get("isAvailable", True) is not False]
 
     if not files:
@@ -280,9 +324,14 @@ def cf_install(data, user):
     if project.get("gameId") != CF_GAME:
         raise FileError("Ese proyecto no es de Minecraft Bedrock")
 
-    files = cf_release(project_id)
     name = project.get("name", "")
     url = (project.get("links") or {}).get("websiteUrl", "")
+
+    # Un mapa es un mundo: se agrega a la lista de mundos (pestana Mundo)
+    if project.get("classId") not in (CF_CLASS["addons"], CF_CLASS["textures"]):
+        return cf_install_world(project_id, name, url, user)
+
+    files = cf_release(project_id)
     installed = []
 
     for item in files:
@@ -311,3 +360,32 @@ def cf_install(data, user):
             os.remove(tmp)
 
     return changed("Add-on instalado", {"installed": installed})
+
+
+def cf_install_world(project_id, name, url, user):
+    from .worlds import import_archive
+
+    newest = cf_release(project_id, WORLD_FILE_TYPES)[0]
+    link = newest.get("downloadUrl")
+
+    if not link:
+        raise FileError("El autor solo permite descargarlo desde su página: " + url)
+
+    if int(newest.get("fileLength") or 0) > MAX_UPLOAD:
+        raise FileError("El mapa es demasiado grande")
+
+    fd, tmp = tempfile.mkstemp(prefix="mcpanel-map-", suffix=".zip")
+
+    try:
+        with os.fdopen(fd, "wb") as f:
+            f.write(fetch_url(link.replace(" ", "%20"), timeout=180))
+
+        result = import_archive(tmp, name, user)
+    except FileError:
+        raise
+    except Exception as error:
+        raise FileError("No se pudo descargar de CurseForge: %s" % str(error)[:120])
+    finally:
+        os.remove(tmp)
+
+    return changed("Mapa agregado", {"world": result["id"]})

@@ -367,9 +367,10 @@ async function openCreateServer() {
 
     try {
         const data = await postJson("/servers/create", readServerFields("newSrv"));
-        showToast(t("srv.created"), "green");
+        showToast(t("srv.createdSetup"), "green");
         await refreshAuth();
-        go("#/s/" + data.id);
+        // No se enciende solo: primero se configura
+        go("#/s/" + data.id + "/settings");
     } catch (error) {
         showToast(error.message, "red");
     }

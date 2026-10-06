@@ -1,5 +1,23 @@
 [
   {
+    "version": "2.9.0",
+    "date": "2026-10-06",
+    "en": [
+      "New World tab in Settings: regenerate the world (with a new seed if you want; the old one is kept as a copy), switch between worlds, delete them, upload one, and reset the Nether or the End (Java).",
+      "Experimental features: Bedrock's Experiments (Beta APIs and others, which many add-ons need) and Java's experimental packs.",
+      "A new server no longer starts by itself: set up the seed, world type, rules and add-ons first, and start it when you're ready.",
+      "Bedrock: shaders and maps in the add-ons search (Bedrock has no modpacks; maps are the closest). Maps and .mcworld files go to the World tab.",
+      "Bedrock players now show a head and a 3D skin: their own if GeyserMC has it, otherwise the classic Steve or Alex."
+    ],
+    "es": [
+      "Nueva pestaña Mundo en Ajustes: regenerar el mundo (con otra semilla si quieres; el anterior queda como copia), cambiar entre mundos, borrarlos, subir uno y reiniciar el Nether o el End (Java).",
+      "Funciones experimentales: los Experimentos de Bedrock (Beta APIs y otros, que muchos add-ons necesitan) y los paquetes experimentales de Java.",
+      "Un servidor nuevo ya no se enciende solo: primero eliges la semilla, el tipo de mundo, las reglas y los add-ons, y lo enciendes cuando quieras.",
+      "Bedrock: shaders y mapas en la búsqueda de add-ons (Bedrock no tiene modpacks; lo más parecido son los mapas). Los mapas y archivos .mcworld van a la pestaña Mundo.",
+      "Los jugadores de Bedrock ya muestran cara y skin en 3D: la suya si GeyserMC la tiene y, si no, el Steve o Alex clásico."
+    ]
+  },
+  {
     "version": "2.8.0",
     "date": "2026-10-06",
     "en": [

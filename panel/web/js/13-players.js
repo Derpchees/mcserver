@@ -164,14 +164,12 @@ function renderPlayers() {
         const row = el("div", "pl-row" + (player.online ? " online" : ""));
 
         const avatar = el("span", "avatar pl-avatar", player.name.charAt(0).toUpperCase());
-        // Las caras son de cuentas de Java (o del mod de skins del servidor)
-        if (playersData.edition !== "bedrock") {
-            const img = document.createElement("img");
-            img.alt = "";
-            img.src = playerHeadUrl(player.name, 64);
-            img.onerror = function() { img.remove(); };
-            avatar.append(img);
-        }
+        // La cara de su skin (en Bedrock la de GeyserMC o el personaje clasico)
+        const img = document.createElement("img");
+        img.alt = "";
+        img.src = playerHeadUrl(player.name, 64);
+        img.onerror = function() { img.remove(); };
+        avatar.append(img);
 
         avatar.append(el("span", "pl-dot"));
 
@@ -503,12 +501,7 @@ async function openPlayer(name, focus) {
         }, 60);
     }
 
-    if (playersData.edition === "bedrock") {
-        stage.textContent = "";
-        stage.append(el("div", "pl-skin-letter", player.name.charAt(0).toUpperCase()));
-    } else {
-        startSkin(stage, canvas, player.name);
-    }
+    startSkin(stage, canvas, player.name);
 
     await done;
 

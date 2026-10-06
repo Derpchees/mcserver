@@ -9,6 +9,7 @@ import time
 import threading
 
 import backup_schedule
+import server_setup
 import mcpanel_core as core
 from push import kinds
 
@@ -313,7 +314,9 @@ def create_server_for(user, data):
         backup_schedule.mark_done(srv)
     except OSError:
         pass
-    build_in_background(srv, start=True)
+    # No se enciende hasta que su dueno lo configure y lo encienda
+    server_setup.mark(srv)
+    build_in_background(srv, start=False)
 
     return srv
 

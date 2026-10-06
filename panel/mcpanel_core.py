@@ -629,6 +629,10 @@ class Server:
 
         os.replace(path + ".tmp", path)
 
+    def setup_pending(self):
+        import server_setup
+        return server_setup.pending(self)
+
     def public(self, owner_name=None):
         return {
             "id": self.id,
@@ -653,6 +657,8 @@ class Server:
             "icon": self.icon,
             "state": self.state,
             "state_detail": self.state_detail,
+            # Nuevo: no se enciende solo hasta que lo enciendan desde el panel
+            "setup_pending": self.setup_pending(),
             "loader": self.extra_env.get(LOADER_ENV.get(self.type, ""), ""),
             "java": self.java,
             "modpack": self.extra_env.get("MODRINTH_MODPACK") or self.extra_env.get("CF_SLUG", "")

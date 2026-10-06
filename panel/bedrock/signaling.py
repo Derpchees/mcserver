@@ -29,7 +29,8 @@ UDP_PORTS = 20
 
 TEXT = {
     "off": {"es": "Apagado: entra para encenderlo", "en": "Sleeping: join to start it"},
-    "nodisk": {"es": "No disponible", "en": "Unavailable"}
+    "nodisk": {"es": "No disponible", "en": "Unavailable"},
+    "setup": {"es": "En preparación", "en": "Being set up"}
 }
 
 
