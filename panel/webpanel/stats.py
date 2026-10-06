@@ -3,15 +3,19 @@
 #
 
 import os
-import re
 import time
 import threading
 import shlex
+import shutil
 import glob
 
 import mcpanel_core as core
+import runtime
 
 from .common import command, current_server
+
+if core.WINDOWS:
+    from native import winsys
 
 
 HISTORY_POINTS = 90
@@ -30,6 +34,9 @@ _stats_lock = threading.Lock()
 
 
 def read_cpu_times():
+    if core.WINDOWS:
+        return winsys.cpu_times()
+
     with open("/proc/stat", "r") as f:
         values = [int(x) for x in f.readline().split()[1:]]
 
@@ -38,6 +45,9 @@ def read_cpu_times():
 
 
 def read_memory():
+    if core.WINDOWS:
+        return winsys.memory()
+
     info = {}
 
     with open("/proc/meminfo", "r") as f:
@@ -52,6 +62,9 @@ def read_memory():
 
 
 def dir_size(path):
+    if core.WINDOWS:
+        return walk_size(path)
+
     output = command("du -sb " + shlex.quote(path) + " 2>/dev/null")
 
     try:
@@ -60,19 +73,21 @@ def dir_size(path):
         return None
 
 
-def parse_docker_size(text):
-    m = re.match(r"([\d.]+)\s*([KMGT]?i?B)", text.strip())
+def walk_size(path):
+    # Sin du (Windows): se suman los archivos
+    if not os.path.isdir(path):
+        return None
 
-    if not m:
-        return 0
+    total = 0
 
-    units = {
-        "B": 1,
-        "KB": 1e3, "MB": 1e6, "GB": 1e9, "TB": 1e12,
-        "KiB": 1024, "MiB": 1024 ** 2, "GiB": 1024 ** 3, "TiB": 1024 ** 4
-    }
+    for root, _, files in os.walk(path):
+        for name in files:
+            try:
+                total += os.path.getsize(os.path.join(root, name))
+            except OSError:
+                pass
 
-    return int(float(m.group(1)) * units.get(m.group(2), 1))
+    return total
 
 
 def stats_loop():
@@ -106,25 +121,7 @@ def slow_stats_loop():
 
     while True:
         try:
-            output = command(
-                "docker stats --no-stream --format "
-                "'{{.Name}}|{{.CPUPerc}}|{{.MemUsage}}' 2>/dev/null"
-            )
-
-            containers = {}
-
-            for line in output.splitlines():
-                parts = line.split("|")
-
-                if len(parts) != 3:
-                    continue
-
-                used, _, limit = parts[2].partition("/")
-                containers[parts[0]] = {
-                    "cpu": float(parts[1].strip().rstrip("%") or 0),
-                    "mem_used": parse_docker_size(used),
-                    "mem_limit": parse_docker_size(limit)
-                }
+            containers = runtime.stats()
 
             with _stats_lock:
                 _stats["containers"] = containers
@@ -138,7 +135,7 @@ def slow_stats_loop():
                         "backups": dir_size(srv.backup_dir)
                     }
 
-                docker_size = dir_size("/var/lib/docker")
+                docker_size = None if core.NATIVE else dir_size("/var/lib/docker")
 
                 with _stats_lock:
                     _stats["sizes"] = sizes
@@ -190,7 +187,9 @@ def configured_disks():
     data_path = srv.data_dir if srv else core.data_root()
     backup_path_ = srv.backup_dir if srv else core.backup_root()
 
-    for role, path in (("data", data_path), ("backups", backup_path_), ("system", "/")):
+    system = (os.environ.get("SystemDrive", "C:") + "\\") if core.WINDOWS else "/"
+
+    for role, path in (("data", data_path), ("backups", backup_path_), ("system", system)):
         if not os.path.exists(path):
             continue
 
@@ -289,13 +288,17 @@ def disk_list(sizes):
         roles = disk["roles"]
         dev = os.stat(path).st_dev
 
-        st = os.statvfs(path)
-        total = st.f_blocks * st.f_frsize
-        free = st.f_bavail * st.f_frsize
-        used = (st.f_blocks - st.f_bfree) * st.f_frsize
+        if core.WINDOWS:
+            usage = shutil.disk_usage(path)
+            total, free, used, reserved = usage.total, usage.free, usage.used, 0
+        else:
+            st = os.statvfs(path)
+            total = st.f_blocks * st.f_frsize
+            free = st.f_bavail * st.f_frsize
+            used = (st.f_blocks - st.f_bfree) * st.f_frsize
 
-        # ext4 reserva ~5% para root; no es espacio usado de verdad
-        reserved = (st.f_bfree - st.f_bavail) * st.f_frsize
+            # ext4 reserva ~5% para root; no es espacio usado de verdad
+            reserved = (st.f_bfree - st.f_bavail) * st.f_frsize
 
         parts = []
 
@@ -345,7 +348,7 @@ def disk_list(sizes):
         disks.append({
             "id": "-".join(roles),
             "role": "data" if "data" in roles else roles[0],
-            "label": disk_model(disks_for_mount(path)),
+            "label": path.rstrip("\\") if core.WINDOWS else disk_model(disks_for_mount(path)),
             "mount": path,
             "temp": temp,
             "total": total,
@@ -442,7 +445,7 @@ def system_stats():
             "cpu": {
                 "percent": _stats["cpu"],
                 "cores": os.cpu_count(),
-                "load": os.getloadavg(),
+                "load": os.getloadavg() if hasattr(os, "getloadavg") else None,
                 "temp": cpu_temperature(),
                 "history": list(_stats["cpu_history"])
             },
@@ -461,8 +464,11 @@ def system_stats():
             data["container"] = _stats["containers"].get(srv.container)
 
     try:
-        with open("/proc/uptime", "r") as f:
-            data["uptime"] = int(float(f.read().split()[0]))
+        if core.WINDOWS:
+            data["uptime"] = winsys.uptime()
+        else:
+            with open("/proc/uptime", "r") as f:
+                data["uptime"] = int(float(f.read().split()[0]))
     except Exception:
         data["uptime"] = None
 

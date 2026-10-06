@@ -18,6 +18,7 @@ import json
 import os
 import re
 import secrets
+import socket
 import sqlite3
 import subprocess
 import sys
@@ -29,7 +30,17 @@ import time
 # Configuracion del sistema
 # ============================================================
 
-CONFIG_ENV = os.environ.get("MCPANEL_CONFIG", "/etc/mcpanel/config.env")
+# Windows: sin Docker ni rutas de Linux. Todo vive en una carpeta
+# (C:/MCServer): el codigo en app/ y config.env junto a ella
+WINDOWS = os.name == "nt"
+HOME_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+# Windows no tiene duenos de archivo al estilo Linux: chown no hace nada
+if not hasattr(os, "chown"):
+    os.chown = lambda *args, **kwargs: None
+
+CONFIG_ENV = os.environ.get("MCPANEL_CONFIG",
+                            os.path.join(HOME_DIR, "config.env") if WINDOWS else "/etc/mcpanel/config.env")
 
 # Los scripts que se lanzan con systemd-run no heredan el entorno: asi
 # usan la misma configuracion (importa si hay mas de una instalacion)
@@ -68,15 +79,24 @@ def cfg(key, default=""):
     return CFG.get(key, default) or default
 
 
+def default_path(linux, windows):
+    # En Windows las rutas por defecto son carpetas dentro de la instalacion
+    return os.path.join(HOME_DIR, windows).replace("\\", "/") if WINDOWS else linux
+
+
 SYSTEM_NAME = cfg("SYSTEM_NAME", "MCServer")
 DEFAULT_LANG = cfg("LANG_DEFAULT", "en")
-INSTALL_DIR = cfg("INSTALL_DIR", "/opt/mcpanel")
-DATA_ROOT = cfg("DATA_ROOT", "/srv/minecraft/servers")
-BACKUP_ROOT = cfg("BACKUP_ROOT", "/srv/minecraft/backups")
+INSTALL_DIR = cfg("INSTALL_DIR", default_path("/opt/mcpanel", "app"))
+DATA_ROOT = cfg("DATA_ROOT", default_path("/srv/minecraft/servers", "servers"))
+BACKUP_ROOT = cfg("BACKUP_ROOT", default_path("/srv/minecraft/backups", "backups"))
 BACKUP_MOUNT = cfg("BACKUP_MOUNT", "")
-LOG_ROOT = cfg("LOG_DIR", "/var/log/mcpanel")
-STATE_ROOT = cfg("STATE_DIR", "/var/lib/mcpanel")
-RUN_ROOT = cfg("RUN_DIR", "/run/mcpanel")
+LOG_ROOT = cfg("LOG_DIR", default_path("/var/log/mcpanel", "logs"))
+STATE_ROOT = cfg("STATE_DIR", default_path("/var/lib/mcpanel", "state"))
+RUN_ROOT = cfg("RUN_DIR", default_path("/run/mcpanel", "run"))
+
+# Como corren los servidores: "docker" (Linux) o "native" (procesos normales,
+# siempre en Windows: el panel descarga Java y el servidor; ver runtime/)
+NATIVE = cfg("RUNTIME", "native" if WINDOWS else "docker") == "native"
 LISTEN_IP = cfg("LISTEN_IP", "0.0.0.0")
 PUBLIC_HOST = cfg("PUBLIC_HOST", "")
 PANEL_PORT = int(cfg("PANEL_PORT", "8090"))
@@ -185,6 +205,9 @@ def set_config(values):
 def read_fstab():
     mounts = []
 
+    if WINDOWS:
+        return mounts
+
     try:
         with open("/etc/fstab", "r", encoding="utf-8") as f:
             for line in f:
@@ -243,6 +266,10 @@ LOADER_ENV = {
 
 
 def system_ram_gb():
+    if WINDOWS:
+        from native import winsys
+        return max(1, round(winsys.memory()[0] / 1024 ** 3))
+
     with open("/proc/meminfo", "r") as f:
         for line in f:
             if line.startswith("MemTotal:"):
@@ -673,6 +700,18 @@ def make_slug(base):
 
 
 def port_in_use(port, udp=False):
+    if WINDOWS:
+        # Sin ss: se intenta ocupar el puerto un momento
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM if udp else socket.SOCK_STREAM)
+
+        try:
+            sock.bind(("0.0.0.0", port))
+            return False
+        except OSError:
+            return True
+        finally:
+            sock.close()
+
     result = subprocess.run(["ss", "-lunH" if udp else "-ltnH", "( sport = :%d )" % port],
                             capture_output=True, text=True)
     return bool(result.stdout.strip())
@@ -724,24 +763,10 @@ def create_server_row(name, owner_id, type_, version, max_gb, cpu, **extra):
 # Contenedores
 # ============================================================
 
-def java_tag(version):
-    # Version de Java que necesita cada version de Minecraft
-    m = re.match(r"^1\.(\d+)(?:\.(\d+))?", version or "")
-
-    if not m:
-        return "latest"
-
-    minor = int(m.group(1))
-    patch = int(m.group(2) or 0)
-
-    if minor < 17:
-        return "java8"
-    if minor == 17:
-        return "java16"
-    if minor < 20 or (minor == 20 and patch < 5):
-        return "java17"
-
-    return "latest"
+def runtime():
+    # Docker o procesos normales (se carga aqui: runtime importa este modulo)
+    import runtime as backend
+    return backend
 
 
 def docker(*args, check=False):
@@ -754,202 +779,28 @@ def docker(*args, check=False):
 
 
 def container_state(srv):
-    result = docker("inspect", "-f",
-                    "{{.State.Status}}|{{if .State.Health}}{{.State.Health.Status}}{{else}}no-health{{end}}",
-                    srv.container)
-
-    if result.returncode != 0:
-        return "missing", "missing"
-
-    status, _, health = result.stdout.strip().partition("|")
-    return status, health
-
-
-def host_timezone():
-    return subprocess.run(["timedatectl", "show", "-p", "Timezone", "--value"],
-                          capture_output=True, text=True).stdout.strip() or "UTC"
-
-
-def bedrock_spec(srv):
-    # Bedrock no usa Java: la RAM es un limite del contenedor. Desde la 1.26
-    # se conecta con NetherNet: HTTP por TCP (pasa por el proxy del agente) y
-    # el juego por UDP directo a su rango de puertos, anunciado con la IP de
-    # los jugadores (ver bedrock/signaling.py)
-    from bedrock import signaling
-
-    first, last = signaling.udp_range(srv)
-    env = {
-        "EULA": "TRUE",
-        "VERSION": srv.version or "LATEST",
-        "TRANSPORT": "nethernet",
-        "SERVER_UDP_PORTS": "%s:%d-%d:%d-%d" % (signaling.advertised_ip(), first, last, first, last),
-        "UID": str(MC_UID),
-        "GID": str(MC_GID),
-        "TZ": host_timezone()
-    }
-
-    for key, value in sorted(srv.extra_env.items()):
-        env[key] = str(value)
-
-    return {
-        "image": BEDROCK_IMAGE + ":latest",
-        "env": env,
-        "cpus": srv.cpu if srv.cpu and srv.cpu > 0 else 0,
-        "memory": srv.max_gb * 1024 ** 3,
-        "restart": "no" if srv.autostop else "unless-stopped",
-        "port": srv.internal_port,
-        "udp": (first, last),
-        "data": srv.data_dir
-    }
-
-
-def container_spec(srv):
-    # Como debe quedar el contenedor del servidor. Lo usan build_container
-    # (para crearlo) y container_matches (para saber si hay cambios pendientes).
-    if is_bedrock(srv):
-        return bedrock_spec(srv)
-
-    image = "%s:%s" % (IMAGE, ("java" + srv.java) if srv.java else java_tag(srv.version))
-    tz = host_timezone()
-
-    env = {
-        "EULA": "TRUE",
-        "TYPE": srv.type,
-        "VERSION": srv.version,
-        "INIT_MEMORY": "%dG" % max(1, srv.max_gb // 2),
-        "MAX_MEMORY": "%dG" % srv.max_gb,
-        "UID": str(MC_UID),
-        "GID": str(MC_GID),
-        "TZ": tz
-    }
-
-    if srv.type == "PAPER":
-        env["USE_AIKAR_FLAGS"] = "true"
-
-    for key, value in sorted(srv.extra_env.items()):
-        env[key] = str(value)
-
-    # Las dependencias obligatorias de los mods de Modrinth se instalan solas
-    if "MODRINTH_PROJECTS" in srv.extra_env and "MODRINTH_DOWNLOAD_DEPENDENCIES" not in srv.extra_env:
-        env["MODRINTH_DOWNLOAD_DEPENDENCIES"] = "required"
-
-    # CurseForge necesita la clave de API para modpacks y mods
-    if srv.type == "AUTO_CURSEFORGE" or "CURSEFORGE_FILES" in srv.extra_env:
-        key = get_setting("cf_api_key")
-
-        if key:
-            env["CF_API_KEY"] = key
-
-    return {
-        "image": image,
-        "env": env,
-        "cpus": srv.cpu if srv.cpu and srv.cpu > 0 else 0,
-        "restart": "no" if srv.autostop else "unless-stopped",
-        "port": srv.internal_port,
-        "data": srv.data_dir
-    }
+    # (estado, salud): running/exited/missing y healthy/starting/no-health
+    return runtime().state(srv)[:2]
 
 
 def build_container(srv, start=False):
-    # (Re)crea el contenedor con los recursos del servidor. El mundo vive
-    # en la carpeta del servidor, asi que recrearlo no borra nada.
+    # (Re)crea el contenedor (o prepara los archivos del servidor en Windows).
+    # El mundo vive en la carpeta del servidor: rehacerlo no borra nada.
     if not path_available(srv.data_dir):
         raise RuntimeError("El disco de los servidores no está conectado")
 
     srv.ensure_dirs()
     srv.write_env()
-
-    spec = container_spec(srv)
-
-    if docker("image", "inspect", spec["image"]).returncode != 0:
-        docker("pull", "-q", spec["image"], check=True)
-
-    if docker("network", "inspect", DOCKER_NETWORK).returncode != 0:
-        docker("network", "create", DOCKER_NETWORK)
-
-    docker("rm", "-f", srv.container)
-
-    args = [
-        "create",
-        "--name", srv.container,
-        "--network", DOCKER_NETWORK,
-        "--label", "mcpanel.server=" + srv.slug,
-        "-v", "%s:/data" % spec["data"],
-        "--stop-timeout", "60",
-        "--restart", spec["restart"]
-    ]
-
-    if is_bedrock(srv):
-        # HTTP por el proxy; el UDP del juego directo. La entrada abierta
-        # deja mandar comandos con send-command
-        first, last = spec["udp"]
-        args += ["-p", "127.0.0.1:%d:19132/tcp" % spec["port"],
-                 "-p", "%s:%d-%d:%d-%d/udp" % (LISTEN_IP, first, last, first, last), "-i"]
-    else:
-        args += ["-p", "127.0.0.1:%d:25565" % spec["port"]]
-
-    if spec.get("memory"):
-        args += ["--memory", str(spec["memory"])]
-
-    for key, value in spec["env"].items():
-        args += ["-e", "%s=%s" % (key, value)]
-
-    if spec["cpus"]:
-        args += ["--cpus", str(spec["cpus"])]
-
-    docker(*(args + [spec["image"]]), check=True)
-
-    if start:
-        docker("start", srv.container, check=True)
+    runtime().build(srv, start)
 
 
 def container_matches(srv):
-    # True si el contenedor que existe ya tiene exactamente la configuracion
-    # actual del servidor (entonces no hay nada pendiente de aplicar)
-    result = docker("inspect", srv.container)
-
-    if result.returncode != 0:
-        return False
-
-    try:
-        info = json.loads(result.stdout)[0]
-    except (ValueError, IndexError):
-        return False
-
-    spec = container_spec(srv)
-    config = info.get("Config") or {}
-    host = info.get("HostConfig") or {}
-
-    if config.get("Image") != spec["image"]:
-        return False
-
-    if (host.get("RestartPolicy") or {}).get("Name", "no") != spec["restart"]:
-        return False
-
-    if int(host.get("NanoCpus") or 0) != int(spec["cpus"] * 1e9):
-        return False
-
-    if int(host.get("Memory") or 0) != int(spec.get("memory") or 0):
-        return False
-
-    # Variables propias: las del contenedor menos las que trae la imagen
-    current = dict(item.split("=", 1) for item in config.get("Env") or [] if "=" in item)
-    image_info = docker("image", "inspect", spec["image"])
-
-    try:
-        image_env = json.loads(image_info.stdout)[0]["Config"]["Env"] or []
-        defaults = dict(item.split("=", 1) for item in image_env if "=" in item)
-    except (ValueError, IndexError, KeyError, TypeError):
-        defaults = {}
-
-    own = {k: v for k, v in current.items() if defaults.get(k) != v}
-    wanted = {k: v for k, v in spec["env"].items() if defaults.get(k) != v}
-
-    return own == wanted
+    # True si lo que corre ya tiene la configuracion actual (nada pendiente)
+    return runtime().matches(srv)
 
 
 def remove_container(srv):
-    docker("rm", "-f", srv.container)
+    runtime().remove(srv)
 
 
 # ============================================================

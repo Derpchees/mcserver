@@ -15,6 +15,7 @@ import time
 import urllib.request
 
 import mcpanel_core as core
+import runtime
 
 from sysadmin import tasks
 from bedrock import console as bedrock_console
@@ -73,8 +74,8 @@ def players_online():
             total += bedrock_console.player_count(srv.internal_port) or 0
             continue
 
-        result = core.docker("exec", srv.container, "rcon-cli", "list")
-        m = re.search(r"There are (\d+)", re.sub(r"\x1b\[[0-9;]*m", "", result.stdout))
+        _, output = runtime.rcon(srv, ["list"])
+        m = re.search(r"There are (\d+)", re.sub(r"\u00a7.", "", output))
         total += int(m.group(1)) if m else 0
 
     return total
@@ -143,7 +144,31 @@ def status(force=False):
     return info
 
 
+RAW_PS1 = "https://raw.githubusercontent.com/%s/%s/install.ps1" % (REPO, BRANCH)
+
+
+def start_update_windows():
+    # install.ps1 -Update baja la version nueva, detiene la tarea "MCServer"
+    # (panel y agente; los servidores siguen) y la vuelve a iniciar
+    from native import procs
+
+    tasks.log("update", "ACTUALIZANDO desde %s (instalada %s)" % (RAW_PS1, installed_version()))
+    os.makedirs(core.LOG_ROOT, exist_ok=True)
+    script = ("& ([scriptblock]::Create((Invoke-RestMethod -UseBasicParsing '%s'))) -Update -Dir '%s' *>> '%s'"
+              % (RAW_PS1, core.HOME_DIR.replace("'", "''"), LOG.replace("'", "''")))
+
+    try:
+        procs.spawn_detached(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", script])
+    except RuntimeError as error:
+        raise tasks.TaskError("No se pudo iniciar la actualización: %s" % error)
+
+    return {"ok": True, "message": "Actualizando"}
+
+
 def start_update():
+    if core.WINDOWS:
+        return start_update_windows()
+
     # Corre fuera del panel: install.sh reinicia mcpanel-web y mcpanel-agent
     script = (
         "set -e; T=$(mktemp -d); trap 'rm -rf \"$T\"' EXIT; "

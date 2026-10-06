@@ -7,6 +7,7 @@ import os
 import re
 
 import mcpanel_core as core
+import runtime
 
 from .common import FileError, give_to_server, log_server_action, read_lines, use_server
 from .properties import escape_property, unescape_property
@@ -87,9 +88,7 @@ def set_motd(srv, text, user):
     os.replace(tmp, path)
 
     # Contenedores creados con MOTD fijo lo reescribirian al arrancar
-    env = core.docker("inspect", "-f", "{{range .Config.Env}}{{println .}}{{end}}", srv.container).stdout
-
-    if any(line.startswith("MOTD=") for line in env.splitlines()):
+    if "MOTD" in runtime.current_env(srv):
         use_server(srv)
         request_rebuild(srv)
 

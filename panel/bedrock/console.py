@@ -2,15 +2,16 @@
 # MCServer by Derpchees - consola de Bedrock (sin RCON)
 #
 # Bedrock no tiene RCON: los comandos se escriben en la entrada del
-# servidor con send-command (viene en la imagen) y la respuesta sale
-# en el log del contenedor. Los jugadores conectados se cuentan con el
+# servidor (send-command en Docker, el vigilante en Windows) y la respuesta
+# sale en su log. Los jugadores conectados se cuentan con el
 # estado que da para la lista de servidores y sus nombres salen del log.
 #
 
 import json
 import re
-import subprocess
 import time
+
+import runtime
 
 from . import signaling
 
@@ -33,25 +34,7 @@ def quote(name):
     return '"%s"' % name.replace('"', "") if " " in name else name
 
 
-def docker_logs(container, since=None, tail=None):
-    args = ["docker", "logs"]
-
-    if since is not None:
-        args += ["--since", since if isinstance(since, str) else "%.3f" % since]
-
-    if tail is not None:
-        args += ["--tail", str(tail)]
-
-    try:
-        result = subprocess.run(args + [container], stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                                text=True, errors="replace", timeout=20)
-    except (OSError, subprocess.TimeoutExpired):
-        return ""
-
-    return result.stdout
-
-
-def send(container, text, wait=0.0):
+def send(srv, text, wait=0.0):
     # Manda una linea a la consola. Con wait, devuelve lo que el servidor
     # escribio en el log en esos segundos (la respuesta del comando).
     text = clean(text)
@@ -60,46 +43,29 @@ def send(container, text, wait=0.0):
         return False, ""
 
     started = time.time() - 0.2
+    ok, output = runtime.console_send(srv, text)
 
-    try:
-        # send-command busca el proceso en /proc: sin --privileged Docker no lo deja
-        result = subprocess.run(["docker", "exec", "--privileged", container, "send-command"] + text.split(" "),
-                                capture_output=True, text=True, timeout=20)
-    except (OSError, subprocess.TimeoutExpired):
-        return False, ""
-
-    if result.returncode != 0:
-        return False, (result.stdout + result.stderr).strip()
+    if not ok:
+        return False, output
 
     if not wait:
         return True, ""
 
     time.sleep(wait)
-    lines = [line for line in docker_logs(container, since=started).splitlines() if line.strip()]
+    lines = [line for line in runtime.logs(srv, since=started).splitlines() if line.strip()]
     return True, "\n".join(lines[-40:])
 
 
-def tellraw(container, target, text, label=None, color="gold"):
+def tellraw(srv, target, text, label=None, color="gold"):
     # Mensaje en el chat del juego (formato rawtext de Bedrock)
     prefix = "§%s[%s]§r " % (COLOR.get(color, "6"), clean(label)) if label else ""
     payload = json.dumps({"rawtext": [{"text": prefix + clean(text)}]}, ensure_ascii=False)
-    return send(container, "tellraw %s %s" % (target if target == "@a" else quote(target), payload))[0]
+    return send(srv, "tellraw %s %s" % (target if target == "@a" else quote(target), payload))[0]
 
 
-def started_at(container):
-    try:
-        result = subprocess.run(["docker", "inspect", "-f", "{{.State.StartedAt}}", container],
-                                capture_output=True, text=True, timeout=10)
-    except (OSError, subprocess.TimeoutExpired):
-        return None
-
-    value = result.stdout.strip()
-    return value if result.returncode == 0 and value else None
-
-
-def online_names(container):
-    # Conectados segun el log desde que arranco el contenedor
-    output = docker_logs(container, since=started_at(container))
+def online_names(srv):
+    # Conectados segun el log desde que arranco
+    output = runtime.logs(srv, since=runtime.started_at(srv))
     online = {}
 
     for line in output.splitlines():

@@ -1,5 +1,19 @@
 [
   {
+    "version": "2.8.0",
+    "date": "2026-10-06",
+    "en": [
+      "Windows support: install with one PowerShell command. Everything lives in one folder (C:\\MCServer), without Docker; the panel downloads Java and each server by itself and starts with Windows.",
+      "Bedrock: players could not join (the game connects encrypted and the panel cut that connection). Fixed: joining now works and also starts a sleeping server.",
+      "Windows: Vanilla, Paper, Fabric, Forge, NeoForge, Modrinth and CurseForge modpacks, Modrinth mods and Bedrock, with console, commands, backups and automatic stop like on Linux."
+    ],
+    "es": [
+      "Soporte para Windows: se instala con un comando de PowerShell. Todo vive en una carpeta (C:\\MCServer), sin Docker; el panel descarga Java y cada servidor solo y arranca con Windows.",
+      "Bedrock: los jugadores no podían entrar (el juego se conecta cifrado y el panel cortaba esa conexión). Arreglado: ya se puede entrar y también enciende el servidor si estaba apagado.",
+      "Windows: Vanilla, Paper, Fabric, Forge, NeoForge, modpacks de Modrinth y CurseForge, mods de Modrinth y Bedrock, con consola, comandos, respaldos y apagado automático como en Linux."
+    ]
+  },
+  {
     "version": "2.7.0",
     "date": "2026-10-06",
     "en": [

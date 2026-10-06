@@ -2,11 +2,11 @@
 # MCServer by Derpchees - Recreacion del contenedor (en segundo plano y pendiente)
 #
 
-import subprocess
 import os
 import threading
 
 import mcpanel_core as core
+import runtime
 
 from .common import log_server_action, set_stop_hint
 
@@ -17,7 +17,7 @@ def build_in_background(srv, start, restart_after=False):
         try:
             if restart_after:
                 set_stop_hint(srv, "restart")
-                subprocess.run(["docker", "stop", srv.container], capture_output=True)
+                runtime.stop(srv)
 
             core.build_container(srv, start=start or restart_after)
             core.update_server(srv.id, state="ready", state_detail="")

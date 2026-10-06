@@ -7,19 +7,35 @@
 
 const ADMIN_TABS = ["general", "users", "storage", "https", "updates"];
 
+// En Windows no hay discos que administrar ni HTTPS (por ahora)
+const LINUX_ONLY_TABS = ["storage", "https"];
+
+
+function isWindowsHost() {
+    return !!authState && authState.platform === "windows";
+}
+
+
+function adminTabs() {
+    return ADMIN_TABS.filter(function(name) {
+        return !isWindowsHost() || LINUX_ONLY_TABS.indexOf(name) < 0;
+    });
+}
+
 
 function adminTabFromHash() {
     const name = location.hash.replace(/^#\/?/, "").split("/")[1];
-    return ADMIN_TABS.indexOf(name) >= 0 ? name : "general";
+    return adminTabs().indexOf(name) >= 0 ? name : "general";
 }
 
 
 function showAdminTab(name) {
 
-    if (ADMIN_TABS.indexOf(name) < 0) name = "general";
+    if (adminTabs().indexOf(name) < 0) name = "general";
 
     document.querySelectorAll("#adminTabs .tab-btn").forEach(function(btn) {
         btn.classList.toggle("active", btn.dataset.admtab === name);
+        btn.hidden = adminTabs().indexOf(btn.dataset.admtab) < 0;
     });
 
     // Con una clase (no con hidden): la zona de peligro usa hidden para el dueno

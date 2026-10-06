@@ -1,6 +1,6 @@
 # MCServer by Derpchees — guía para Claude
 
-Panel web para correr varios servidores de Minecraft (Java y Bedrock) en un equipo Linux (Debian/Ubuntu), cada uno en Docker (`itzg/minecraft-server` o `itzg/minecraft-bedrock-server`), con cuentas de usuario. Pensado para **redes de casa o VPN** (ZeroTier, Tailscale), nunca expuesto a internet. Repo público: https://github.com/Derpchees/mcserver (rama `main`, licencia MIT).
+Panel web para correr varios servidores de Minecraft (Java y Bedrock) con cuentas de usuario: en Linux (Debian/Ubuntu) cada uno en Docker (`itzg/minecraft-server` o `itzg/minecraft-bedrock-server`); en Windows sin Docker, como procesos normales y todo en una carpeta (`C:\MCServer`). Pensado para **redes de casa o VPN** (ZeroTier, Tailscale), nunca expuesto a internet. Repo público: https://github.com/Derpchees/mcserver (rama `main`, licencia MIT).
 
 Lee esto en lugar de recorrer todo el proyecto. Los detalles privados del entorno del dueño están en `CLAUDE.local.md` (no se sube a GitHub).
 
@@ -18,6 +18,9 @@ Lee esto en lugar de recorrer todo el proyecto. Los detalles privados del entorn
 
 ```
 install.sh / uninstall.sh   instalador (whiptail, en/es, --update, --config answers.env); VERSION="x.y.z" aquí
+install.ps1 / uninstall.ps1 Windows: `irm .../install.ps1 | iex`; carpeta con app\, python\ (portátil),
+                            java\, servers\, backups\, state\, logs\; tarea "MCServer" (SYSTEM) que corre
+                            native/service.py; -Update lo usa el botón Actualizar (lee VERSION de install.sh)
 bin/                        mcpanel-backup.sh (respaldos), mcpanel-passwd
 systemd/                    mcpanel-web.service, mcpanel-agent.service (corren como root)
 panel/
@@ -34,6 +37,13 @@ panel/
                             rehacer disco, vigilancia de discos (watch.py, lo usa el agente)
   sysadmin/                 tareas del sistema: duckdns.py (HTTPS con Let's Encrypt), localca.py
                             (HTTPS con CA propia), update.py (actualizar desde GitHub), tasks.py
+  runtime/                  cómo corren los servidores: __init__.py (la única puerta: state, start, stop,
+                            rcon, console_send, logs, stats, build, matches), docker.py (Linux) y
+                            native.py (Windows); jobs.py = respaldos aparte (systemd-run o proceso suelto)
+  native/                   Windows sin Docker: runner.py (vigila cada servidor y sostiene su consola),
+                            java.py (Temurin portátil), loaders.py (Vanilla/Paper/Fabric/Forge/NeoForge),
+                            modsync.py, modpacks.py, bedrock_win.py, rcon.py, backup.py, service.py
+                            (panel + agente), winsys.py (memoria, CPU, procesos, jobs con ctypes)
   bedrock/                  servidores Bedrock (tipo BEDROCK): signaling.py (NetherNet: estado HTTP y
                             puertos UDP), console.py (comandos con send-command, sin RCON), firstboot.py,
                             packs.py y addons.py (add-ons: .mcaddon/.mcpack, activar en el mundo)
@@ -59,7 +69,8 @@ panel/
 ### Detalles importantes del backend
 
 - Dentro de una petición de servidor se usa `S()` / `use_server()` (`webpanel/common.py`).
-- Bedrock (`core.is_bedrock`): desde la 1.26 usa NetherNet: HTTP por TCP en `BEDROCK_PORT_START` (19132, pasa por el proxy del agente) y el juego por UDP directo, 20 puertos por servidor (`bedrock/signaling.py`). Sin RCON ni Java; el nombre en la lista va en `SERVER_NAME` (la imagen no reescribe un `server.properties` existente). Tiene add-ons en lugar de mods (`webpanel/addons.py`, solo gratuitos: subidos o de CurseForge, juego 78022). Un servidor no cambia de Java a Bedrock.
+- **Nunca llamar a `docker` directo**: todo pasa por `runtime` (Docker en Linux, procesos en Windows). `core.WINDOWS` / `core.NATIVE` dicen dónde corre; lo que solo existe en Linux (discos, HTTPS, systemd) se oculta en Windows (`authState.platform`).
+- Bedrock (`core.is_bedrock`): desde la 1.26 usa NetherNet: HTTP por TCP en `BEDROCK_PORT_START` (19132, pasa por el proxy del agente) y el juego por UDP directo, 20 puertos por servidor (`bedrock/signaling.py`). El juego entra **cifrado (TLS)** por ese TCP: el proxy reenvía lo cifrado tal cual (solo la consulta de estado en texto plano se contesta con el servidor apagado). 1.26.52 ya no acepta RakNet. Con `enable-lan-visibility=false` `/v1/join` contesta vacío. Sin RCON ni Java; el nombre en la lista va en `SERVER_NAME` (la imagen no reescribe un `server.properties` existente). Tiene add-ons en lugar de mods (`webpanel/addons.py`, solo gratuitos: subidos o de CurseForge, juego 78022). Un servidor no cambia de Java a Bedrock.
 - Rutas `/s/<id>/...` = de un servidor (`server_get` / `server_post` en `handler.py`); `/admin/...` = administración; varias acciones son solo del **dueño del sistema** (`is_owner`).
 - Cambios con el servidor encendido quedan pendientes (`containers.request_rebuild`); `container_matches` compara con el contenedor real para no dejar pendientes falsos.
 - Las rutas de datos (`DATA_ROOT`, `BACKUP_ROOT`) pueden cambiar en vivo: usar `core.data_root()` / `core.backup_root()`, nunca las constantes.

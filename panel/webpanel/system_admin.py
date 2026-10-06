@@ -29,7 +29,13 @@ def turn_off():
         localca.disable()
 
 
+HTTPS_WINDOWS = "El acceso seguro (HTTPS) por ahora solo está en Linux"
+
+
 def system_get(path, force=False):
+    if path == "/admin/https" and core.WINDOWS:
+        return {"mode": "", "windows": True}
+
     if path == "/admin/https":
         return https_status()
 
@@ -44,6 +50,9 @@ def system_get(path, force=False):
 def system_action(user, path, data):
     if not is_owner(user):
         raise FileError("Solo el dueño del sistema puede hacer esto", 403)
+
+    if core.WINDOWS and path.startswith("/admin/https/"):
+        raise FileError(HTTPS_WINDOWS)
 
     try:
         if path == "/admin/https/duckdns":

@@ -2,16 +2,14 @@
 # MCServer by Derpchees - Respaldos
 #
 
-import subprocess
 import os
 import re
-import time
-import shlex
 
 import backup_schedule
 import mcpanel_core as core
+from runtime import jobs
 
-from .common import command, FileError, INSTALL_DIR, read_lines, S
+from .common import FileError, read_lines, S
 from .stats import _stats, _stats_lock
 
 
@@ -19,12 +17,7 @@ BACKUP_NAME = re.compile(r"^mc-(auto|manual)-(\d{8}-\d{6})\.tar\.gz$")
 
 
 def backup_running():
-    # Los respaldos corren como unidades transitorias mcpanel-backup-<slug>-<ts>
-    output = command(
-        "systemctl list-units --type=service --state=active --no-legend --plain "
-        + shlex.quote("mcpanel-backup-%s-*" % S().slug)
-    )
-    return bool(output.strip())
+    return jobs.backup_running(S())
 
 
 def next_backup_ts():
@@ -78,18 +71,10 @@ def start_backup():
     if not core.path_available(S().backup_dir):
         raise FileError("El disco de respaldos no está conectado")
 
-    S().write_env()
-
-    result = subprocess.run(
-        ["systemd-run", "--unit", "mcpanel-backup-%s-%d" % (S().slug, int(time.time())),
-         "--collect", "--quiet", "--nice=10", core.CONFIG_SETENV,
-         os.path.join(INSTALL_DIR, "bin", "mcpanel-backup.sh"), S().slug, "manual"],
-        capture_output=True,
-        text=True
-    )
-
-    if result.returncode != 0:
-        raise FileError("No se pudo iniciar el respaldo: " + result.stderr.strip(), 500)
+    try:
+        jobs.start_backup(S(), "manual")
+    except Exception as error:
+        raise FileError("No se pudo iniciar el respaldo: " + str(error)[:200], 500)
 
     return {"ok": True, "message": "Respaldo iniciado"}
 

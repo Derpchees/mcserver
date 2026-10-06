@@ -61,7 +61,7 @@ def stop_all_servers():
         except OSError:
             pass
 
-        core.docker("stop", srv.container)
+        core.runtime().stop(srv)
 
 
 def default_path_servers(role):

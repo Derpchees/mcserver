@@ -238,7 +238,8 @@ async function updateStats() {
         $("cpuSub").innerHTML = "";
         $("cpuSub").append(
             el("div", "", t("res.cores", { n: cpu.cores })),
-            el("div", "", t("res.load", { v: cpu.load[0].toFixed(2) })),
+            // Windows no tiene carga promedio
+            el("div", "", cpu.load ? t("res.load", { v: cpu.load[0].toFixed(2) }) : ""),
             // docker stats mide por nucleo (100% = 1 nucleo); se pasa a % del total
             el("div", "", data.container ? t("res.serverUse", { v: (data.container.cpu / cpu.cores).toFixed(0) + "%" }) : "")
         );

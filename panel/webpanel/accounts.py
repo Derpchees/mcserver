@@ -93,6 +93,8 @@ def auth_state(user):
         "system_name": core.SYSTEM_NAME,
         "types": list(core.SERVER_TYPES),
         "bedrock_port_start": core.BEDROCK_PORT_START,
+        # En Windows no hay discos ni HTTPS en Administracion
+        "platform": "windows" if core.WINDOWS else "linux",
         "my_servers": [s.id for s in core.servers_of(user["id"])] if user else [],
         # Para el menu de la cuenta: nombre e icono de cada uno
         "my_server_list": [{"id": s.id, "name": s.name, "slug": s.slug, "icon": s.icon}

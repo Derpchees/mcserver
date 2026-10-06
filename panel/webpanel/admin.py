@@ -150,6 +150,9 @@ def admin_save_settings(data):
 def start_uninstall(data):
     check_double_confirm(data, core.SYSTEM_NAME)
 
+    if core.WINDOWS:
+        return start_uninstall_windows(data)
+
     script = os.path.join(INSTALL_DIR, "uninstall.sh")
 
     if not os.path.isfile(script):
@@ -173,6 +176,31 @@ def start_uninstall(data):
 
     if result.returncode != 0:
         raise FileError("No se pudo iniciar la desinstalación: " + result.stderr.strip(), 500)
+
+    return {"ok": True, "message": "Desinstalando"}
+
+
+def start_uninstall_windows(data):
+    # uninstall.ps1 corre aparte: detiene este panel y borra la carpeta
+    from native import procs
+
+    script = os.path.join(INSTALL_DIR, "uninstall.ps1")
+
+    if not os.path.isfile(script):
+        raise FileError("No se encontró uninstall.ps1", 404)
+
+    args = ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", script, "-Yes"]
+
+    if data.get("purge_data"):
+        args.append("-PurgeData")
+
+    if data.get("purge_backups"):
+        args.append("-PurgeBackups")
+
+    try:
+        procs.spawn_detached(args)
+    except RuntimeError as error:
+        raise FileError("No se pudo iniciar la desinstalación: %s" % error, 500)
 
     return {"ok": True, "message": "Desinstalando"}
 

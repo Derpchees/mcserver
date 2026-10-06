@@ -2,7 +2,6 @@
 # MCServer by Derpchees - Jugadores
 #
 
-import subprocess
 import json
 import os
 import re
@@ -10,6 +9,7 @@ import time
 import threading
 
 import mcpanel_core as core
+import runtime
 
 from .common import (
     autostop_info, container_info, FileError, read_json_file, S, use_server, write_json_file,
@@ -28,16 +28,7 @@ def load_timeouts():
 
 
 def rcon(*args):
-    result = subprocess.run(
-        ["docker", "exec", S().container, "rcon-cli"] + [str(a) for a in args],
-        capture_output=True,
-        text=True
-    )
-
-    # rcon-cli agrega codigos de color ANSI al final
-    output = re.sub(r"\x1b\[[0-9;]*m", "", result.stdout).strip()
-
-    return result.returncode == 0, output
+    return runtime.rcon(S(), args)
 
 
 def log_action(text):

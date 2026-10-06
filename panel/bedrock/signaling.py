@@ -1,9 +1,11 @@
 #
 # MCServer by Derpchees - NetherNet: la conexion de Bedrock desde la 1.26
 #
-# El cliente habla primero por HTTP (TCP) con el puerto del servidor:
+# El cliente habla primero por HTTP (TCP) con el puerto del servidor, casi
+# siempre cifrado (TLS); en texto plano solo llega la consulta de estado:
 #   GET /v1/join  -> estado para la lista de servidores (nombre, jugadores...)
 #   lo demas      -> el ingreso (negocia la conexion UDP del juego)
+# Lo cifrado no se puede leer: se trata como un ingreso y se reenvia tal cual.
 # El juego viaja despues por UDP directo a un rango de puertos propio de
 # cada servidor (server-udp-ports). El agente pasa el HTTP por su proxy
 # TCP: asi contesta la lista con el servidor apagado y lo enciende al entrar.
@@ -14,7 +16,6 @@ import ipaddress
 import json
 import os
 import socket
-import subprocess
 import urllib.request
 
 import mcpanel_core as core
@@ -63,8 +64,13 @@ def advertised_ip():
         except OSError:
             pass
 
-    route = subprocess.run(["ip", "-4", "route", "get", "1.1.1.1"], capture_output=True, text=True).stdout.split()
-    return route[route.index("src") + 1] if "src" in route else "127.0.0.1"
+    # La IP con la que este equipo sale a la red (sin enviar nada)
+    with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
+        try:
+            sock.connect(("1.1.1.1", 53))
+            return sock.getsockname()[0]
+        except OSError:
+            return "127.0.0.1"
 
 
 def status(port, timeout=2.0):
@@ -130,8 +136,15 @@ def offline_response(srv, state="off"):
             b"Connection: close\r\n\r\n" % len(body)) + body
 
 
+def is_tls(head):
+    # Saludo TLS (ClientHello): el juego entrando por la conexion cifrada
+    return head[:1] == b"\x16"
+
+
 async def read_head(reader, timeout):
-    # Lee hasta el final de los encabezados HTTP (lo leido se reenvia despues)
+    # Lee hasta el final de los encabezados HTTP (lo leido se reenvia despues).
+    # Con TLS se devuelve el primer pedazo: el cliente espera respuesta del
+    # servidor y no mandaria nada mas.
     data = b""
 
     while b"\r\n\r\n" not in data and len(data) < HEAD_LIMIT:
@@ -141,5 +154,8 @@ async def read_head(reader, timeout):
             break
 
         data += chunk
+
+        if is_tls(data):
+            break
 
     return data

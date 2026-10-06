@@ -2,7 +2,7 @@
 
 [English](README.md) · **Español**
 
-Un panel web para correr **varios servidores de Minecraft Java en un mismo equipo**, cada uno en Docker, con cuentas de usuario. Incluye un instalador que configura todo en Debian o Ubuntu.
+Un panel web para correr **varios servidores de Minecraft (Java y Bedrock) en un mismo equipo**, con cuentas de usuario. Incluye instaladores para **Debian/Ubuntu** (cada servidor en Docker) y **Windows** (sin Docker, todo en una carpeta).
 
 Cada persona crea su cuenta desde la pantalla de entrar y, en el mismo paso, su propio servidor: elige el tipo, la versión, la RAM y la CPU. Los servidores se encienden cuando alguien se conecta, se apagan cuando nadie juega y se respaldan solos cada día.
 
@@ -48,6 +48,7 @@ Cada servidor de Minecraft corre en la imagen [`itzg/minecraft-server`](https://
 - Debian 12+ o Ubuntu 22.04+ (64 bits), con `sudo`.
 - RAM suficiente para los servidores que vayan a estar encendidos a la vez: unos 2–4 GB cada uno para Vanilla o Paper, 6 GB o más cada uno con mods. Los servidores apagados no usan RAM.
 - Docker. El instalador lo instala si no lo tienes.
+- **O Windows 10/11 (64 bits)**: nada más; ver [Instalar en Windows](#instalar-en-windows).
 
 ## Instalación
 
@@ -77,6 +78,24 @@ Si el firewall `ufw` está activo, abre el puerto del panel, 50 puertos de Java 
 Al terminar, **abre la dirección del panel que muestra y crea la cuenta de administrador**.
 
 Para instalar sin preguntas, copia [`examples/answers.env`](examples/answers.env), complétalo y corre `sudo ./install.sh --config mis-respuestas.env`.
+
+### Instalar en Windows
+
+Abre **PowerShell** y pega:
+
+```powershell
+irm https://raw.githubusercontent.com/Derpchees/mcserver/main/install.ps1 | iex
+```
+
+Pide permisos de administrador, la carpeta de instalación (`C:\MCServer` por defecto) y el puerto del panel, y después:
+
+- deja todo en esa carpeta: el panel, un Python portátil, Java (se descarga según la versión de Minecraft), los servidores, respaldos y registros. No instala nada en otro lado ni usa Docker: cada servidor corre como un programa normal;
+- abre los puertos del panel y del juego en el Firewall de Windows;
+- arranca con Windows (tarea "MCServer", aunque nadie inicie sesión) y agrega MCServer al menú Inicio y al escritorio.
+
+Abre el panel y crea la cuenta de administrador. Se actualiza con un clic en **Administración → Actualizaciones**, igual que en Linux; los servidores siguen encendidos mientras se actualiza el panel. Para desinstalar, usa **Desinstalar MCServer** en el menú Inicio (los mundos y respaldos se conservan salvo que pidas borrarlos).
+
+En Windows todavía no están las pestañas de almacenamiento (discos) y HTTPS de Administración.
 
 ## Después de instalar
 

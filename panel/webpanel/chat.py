@@ -2,7 +2,6 @@
 # MCServer by Derpchees - Chat del servidor
 #
 
-import subprocess
 import json
 import os
 import re
@@ -13,6 +12,7 @@ import glob
 import gzip
 
 import mcpanel_core as core
+import runtime
 from bedrock import console as bedrock_console
 
 from .common import container_info, DEFAULT_LANG, S
@@ -182,20 +182,15 @@ def send_chat(text, role="server", username=None):
     )
 
     if core.is_bedrock(S()):
-        sent = bedrock_console.tellraw(S().container, "@a", text, label, color)
-        result = subprocess.CompletedProcess([], 0 if sent else 1, "", "")
+        sent, output = bedrock_console.tellraw(S(), "@a", text, label, color), ""
     else:
-        result = subprocess.run(
-            ["docker", "exec", S().container, "rcon-cli", "tellraw", "@a", payload],
-            capture_output=True,
-            text=True
-        )
+        sent, output = runtime.rcon(S(), ["tellraw", "@a", payload])
 
-    if result.returncode != 0:
+    if not sent:
         return {
             "ok": False,
             "message": "No se pudo enviar el mensaje",
-            "output": result.stderr.strip()
+            "output": output
         }
 
     os.makedirs(os.path.dirname(os.path.join(S().state_dir, "chat.jsonl")), exist_ok=True)

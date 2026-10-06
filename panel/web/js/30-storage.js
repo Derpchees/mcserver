@@ -11,6 +11,8 @@ let storageJobRunning = false;
 
 async function loadStorage() {
 
+    if (isWindowsHost()) return;
+
     clearTimeout(storageTimer);
 
     try {

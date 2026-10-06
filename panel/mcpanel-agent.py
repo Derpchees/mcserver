@@ -26,8 +26,9 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import mcpanel_core as core  # noqa: E402
 import announce  # noqa: E402
 import backup_schedule  # noqa: E402
+import runtime  # noqa: E402
+from runtime import jobs  # noqa: E402
 from storage import watch  # noqa: E402
-from sysadmin import localca  # noqa: E402
 from push import sender as push_sender  # noqa: E402
 from bedrock import console as bedrock_console  # noqa: E402
 from bedrock import firstboot as bedrock_firstboot  # noqa: E402
@@ -89,24 +90,13 @@ async def run(*args):
     return proc.returncode, out.decode(errors="replace"), err.decode(errors="replace")
 
 
+async def in_thread(func, *args):
+    return await asyncio.get_running_loop().run_in_executor(None, func, *args)
+
+
 async def inspect(srv):
-    code, out, _ = await run(
-        "docker", "inspect", "-f",
-        "{{.State.Status}}|{{if .State.Health}}{{.State.Health.Status}}{{else}}no-health{{end}}|{{.State.ExitCode}}",
-        srv.container
-    )
-
-    if code != 0:
-        return "missing", "missing", 0
-
-    status, health, exit_code = (out.strip().split("|") + ["", "", "0"])[:3]
-
-    try:
-        exit_code = int(exit_code)
-    except ValueError:
-        exit_code = 0
-
-    return status, health, exit_code
+    # (estado, salud, codigo de salida) del contenedor o del proceso
+    return await in_thread(runtime.state, srv)
 
 
 async def port_open(port):
@@ -145,7 +135,7 @@ class Proxy:
             try:
                 listener = await asyncio.start_server(
                     lambda r, w, sid=server_id: self.handle(sid, r, w),
-                    core.LISTEN_IP, srv.game_port, reuse_address=True
+                    core.LISTEN_IP, srv.game_port, reuse_address=not core.WINDOWS
                 )
                 self.listeners[server_id] = (srv.game_port, listener)
             except OSError as error:
@@ -161,11 +151,16 @@ class Proxy:
         status, _, _ = await inspect(srv)
         head = b""
 
-        # Bedrock: la consulta de la lista se contesta sin encenderlo
+        # Bedrock: la consulta de la lista (texto plano) se contesta sin
+        # encenderlo. El ingreso llega cifrado (TLS) y se reenvia tal cual.
         if core.is_bedrock(srv):
             try:
                 head = await signaling.read_head(reader, 10)
             except (OSError, asyncio.TimeoutError):
+                writer.close()
+                return
+
+            if not head:
                 writer.close()
                 return
 
@@ -183,19 +178,18 @@ class Proxy:
             return
 
         if status != "running":
-            log(srv, "proxy.log", "INICIO AUTOMATICO | docker start " + srv.container)
-            await run("docker", "start", srv.container)
+            log(srv, "proxy.log", "INICIO AUTOMATICO | " + srv.container)
+            await in_thread(runtime.start, srv)
 
             for i in range(START_TIMEOUT):
-                # El puerto de Docker acepta conexiones antes de que Minecraft
-                # termine de arrancar: se espera a la comprobacion de salud
-                # de la imagen (o al puerto, si no la tiene)
+                # El puerto acepta conexiones antes de que Minecraft termine
+                # de arrancar: se espera a la comprobacion de salud (o al
+                # puerto, si no la tiene)
                 _, health, _ = await inspect(srv)
 
                 if core.is_bedrock(srv):
                     # Listo cuando contesta (antes que la comprobacion de salud de Docker)
-                    loop = asyncio.get_running_loop()
-                    ready = await loop.run_in_executor(None, signaling.status, srv.internal_port, 1.0) is not None
+                    ready = await in_thread(signaling.status, srv.internal_port, 1.0) is not None
                 else:
                     ready = await port_open(srv.internal_port) if health == "no-health" else health == "healthy"
 
@@ -269,14 +263,14 @@ class Monitor:
 
     async def players(self, srv):
         if core.is_bedrock(srv):
-            return await asyncio.get_running_loop().run_in_executor(None, self.bedrock_players, srv)
+            return await in_thread(self.bedrock_players, srv)
 
-        code, out, _ = await run("docker", "exec", srv.container, "rcon-cli", "list")
+        ok, out = await in_thread(runtime.rcon, srv, ["list"])
 
-        if code != 0:
+        if not ok:
             return None, []
 
-        out = re.sub(r"\x1b\[[0-9;]*m", "", out)
+        out = re.sub(r"\x1b\[[0-9;]*m|\u00a7.", "", out)
         m = re.search(r"There are (\d+)", out)
 
         if not m:
@@ -305,7 +299,7 @@ class Monitor:
         if not count:
             return count, []
 
-        return count, sorted(bedrock_console.online_names(srv.container))[:count]
+        return count, sorted(bedrock_console.online_names(srv))[:count]
 
     async def check(self, srv):
         status, health, exit_code = await inspect(srv)
@@ -337,8 +331,7 @@ class Monitor:
 
             # Bedrock nuevo: se abre la lista de permitidos (viene activada y vacia)
             if core.is_bedrock(srv):
-                await asyncio.get_running_loop().run_in_executor(
-                    None, bedrock_firstboot.run, srv, core.MC_UID, core.MC_GID)
+                await in_thread(bedrock_firstboot.run, srv, core.MC_UID, core.MC_GID)
 
         if status != "running":
             self.idle_since.pop(srv.id, None)
@@ -387,7 +380,7 @@ class Monitor:
             if count == 0:
                 log(srv, "autostop.log", "0 JUGADORES DURANTE %ds | APAGANDO MINECRAFT" % idle_total)
                 set_hint(srv, "auto")
-                await run("docker", "stop", srv.container)
+                await in_thread(runtime.stop, srv)
                 log(srv, "autostop.log", "MINECRAFT APAGADO AUTOMATICAMENTE")
             else:
                 log(srv, "autostop.log", "JUGADOR DETECTADO EN VERIFICACION FINAL | cancelando")
@@ -437,11 +430,10 @@ async def schedule_backups(servers, statuses, healths):
         except OSError:
             continue
 
-        srv.write_env()
-
-        await run("systemd-run", "--unit", "mcpanel-backup-%s-%d" % (srv.slug, int(time.time())),
-                  "--collect", "--quiet", "--nice=10", core.CONFIG_SETENV,
-                  os.path.join(core.INSTALL_DIR, "bin", "mcpanel-backup.sh"), srv.slug, "auto")
+        try:
+            await in_thread(jobs.start_backup, srv, "auto")
+        except Exception as error:
+            core.add_event(srv.id, "backup_failed", "error", str(error)[:200])
 
 
 # ============================================================
@@ -493,14 +485,19 @@ def check_system():
             if percent >= 90:
                 alert("alert_disk:" + path, "%s %.0f" % (path, percent))
 
-    info = {}
+    if core.WINDOWS:
+        from native import winsys
+        total, in_use = winsys.memory()
+        used = in_use / total * 100
+    else:
+        info = {}
 
-    with open("/proc/meminfo") as f:
-        for line in f:
-            key, _, rest = line.partition(":")
-            info[key] = int(rest.split()[0])
+        with open("/proc/meminfo") as f:
+            for line in f:
+                key, _, rest = line.partition(":")
+                info[key] = int(rest.split()[0])
 
-    used = (info["MemTotal"] - info["MemAvailable"]) / info["MemTotal"] * 100
+        used = (info["MemTotal"] - info["MemAvailable"]) / info["MemTotal"] * 100
 
     if used >= 92:
         alert("alert_ram", "%.0f" % used)
@@ -511,6 +508,10 @@ def check_system():
 async def main():
     proxy = Proxy()
     monitor = Monitor()
+
+    # Windows: lo que estaba encendido sin apagado automatico vuelve a encenderse
+    if core.NATIVE:
+        await in_thread(runtime.backend.resume_after_boot)
     last_system = 0
     last_backup_check = 0
     last_cert_check = 0
@@ -528,7 +529,7 @@ async def main():
                     if status == "running":
                         set_hint(srv, "manual")
                         log(srv, "autostop.log", "DISCO DE SERVIDORES DESCONECTADO | apagando")
-                        await run("docker", "stop", srv.container)
+                        await in_thread(runtime.stop, srv)
 
             await asyncio.gather(*(
                 monitor.check(srv) for srv in servers if srv.state == "ready"
@@ -539,10 +540,11 @@ async def main():
                 await schedule_backups(servers, monitor.last_status, monitor.last_health)
 
             # Certificado del panel (HTTPS): se renueva solo antes de vencer
-            # o si el equipo tiene una IP nueva
-            if time.time() - last_cert_check >= 86400:
+            # o si el equipo tiene una IP nueva (solo Linux)
+            if not core.WINDOWS and time.time() - last_cert_check >= 86400:
+                from sysadmin import localca
                 last_cert_check = time.time()
-                renewed = await asyncio.get_running_loop().run_in_executor(None, localca.renew_if_needed)
+                renewed = await in_thread(localca.renew_if_needed)
 
                 if renewed:
                     await run("systemctl", "restart", "mcpanel-web")

@@ -10,6 +10,7 @@ import os
 import re
 import time
 
+import runtime
 from bedrock import console as bedrock_console
 
 from .common import autostop_info, container_info, FileError, read_json_file, S, write_json_file
@@ -34,7 +35,7 @@ def known_names():
         return names
 
     _names_cache[S().container] = time.time()
-    output = bedrock_console.docker_logs(S().container, since="168h")
+    output = runtime.logs(S(), since=time.time() - 168 * 3600)
     changed = False
 
     for line in output.splitlines():
@@ -127,7 +128,7 @@ def player_action(data, log_action):
         raise FileError("El servidor está apagado")
 
     quoted = bedrock_console.quote(name)
-    container = S().container
+    srv = S()
 
     def reason_text(default):
         text = re.sub(r"[\x00-\x1f\x7f]", " ", str(data.get("reason", ""))).strip()[:120]
@@ -152,7 +153,7 @@ def player_action(data, log_action):
         if not text:
             raise FileError("Mensaje vacío")
 
-        ok = bedrock_console.tellraw(container, name, text, "Server -> " + name, "gold")
+        ok = bedrock_console.tellraw(srv, name, text, "Server -> " + name, "gold")
         log_action("message " + name)
 
         if not ok:
@@ -173,7 +174,7 @@ def player_action(data, log_action):
     else:
         raise FileError("Acción no válida")
 
-    ok, out = bedrock_console.send(container, command, wait=0.8)
+    ok, out = bedrock_console.send(srv, command, wait=0.8)
     log_action(action + " " + name + (" | " + out.splitlines()[-1] if out else ""))
 
     if not ok:

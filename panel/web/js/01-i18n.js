@@ -2054,6 +2054,16 @@ const I18N = {
 
 // Mensajes que devuelve el servidor (en espanol) -> ingles
 const SERVER_MESSAGES_EN = {
+    "No se pudo completar la acción": "The action could not be completed",
+    "El servidor no está preparado": "The server is not prepared yet",
+    "El servidor se cerró al iniciar (revisa la consola)": "The server closed while starting (check the console)",
+    "El servidor no inició a tiempo": "The server did not start in time",
+    "En Windows los servidores y respaldos viven en la carpeta de instalación": "On Windows, servers and backups live in the install folder",
+    "El acceso seguro (HTTPS) por ahora solo está en Linux": "Secure access (HTTPS) is only available on Linux for now",
+    "No se encontró uninstall.ps1": "uninstall.ps1 was not found",
+    "Falta la clave de API de CurseForge (Administración)": "The CurseForge API key is missing (Administration)",
+    "Este modpack usa un cargador que no está disponible en Windows": "This modpack uses a mod loader that isn't available on Windows",
+    "No se encontró cómo arrancar el servidor instalado": "Could not find how to start the installed server",
     "Enciende el servidor una vez para que cree su configuración": "Start the server once so it creates its settings",
     "Ajuste guardado": "Setting saved",
     "Los servidores Bedrock usan add-ons, no mods": "Bedrock servers use add-ons, not mods",
@@ -2240,6 +2250,11 @@ const SERVER_MESSAGES_EN = {
 };
 
 const SERVER_PREFIXES_EN = [
+    ["No se pudo iniciar la actualización: ", "The update could not be started: "],
+    ["No se pudo iniciar la desinstalación: ", "The uninstall could not be started: "],
+    ["No se pudo descargar ", "Could not download "],
+    ["Tipo de servidor no disponible en Windows: ", "Server type not available on Windows: "],
+    ["El instalador terminó con error", "The installer ended with an error"],
     ["El autor solo permite descargarlo desde su página: ", "The author only allows downloading it from their page: "],
     ["No se pudo descargar de CurseForge: ", "Could not download from CurseForge: "],
     ["El tamaño debe estar entre ", "The size must be between "],

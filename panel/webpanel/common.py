@@ -51,23 +51,11 @@ def command(cmd):
 
 
 def container_info():
-    running = command(
-        "docker inspect -f '{{.State.Running}}' "
-        + S().container + " 2>/dev/null"
-    )
+    # ("true"/"false", estado, salud) como lo daba docker inspect
+    import runtime
 
-    status = command(
-        "docker inspect -f '{{.State.Status}}' "
-        + S().container + " 2>/dev/null"
-    )
-
-    health = command(
-        "docker inspect -f "
-        "'{{if .State.Health}}{{.State.Health.Status}}{{else}}no-health{{end}}' "
-        + S().container + " 2>/dev/null"
-    )
-
-    return running, status, health
+    status, health, _ = runtime.state(S())
+    return ("true" if status == "running" else "false"), status, health
 
 
 def autostop_info():

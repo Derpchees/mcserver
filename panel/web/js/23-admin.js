@@ -14,9 +14,12 @@ async function loadAdmin() {
 
         renderAdminSettings(settings);
         renderAdminUsers(users.users || []);
-        loadStorage();
         loadUpdate(false);
-        loadHttps();
+
+        if (!isWindowsHost()) {
+            loadStorage();
+            loadHttps();
+        }
     } catch (error) {
         showToast(t("login.noConnection"), "red");
     }

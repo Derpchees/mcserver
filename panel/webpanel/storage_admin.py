@@ -15,7 +15,14 @@ from .common import FileError
 from .access import is_owner
 
 
+WINDOWS_ONLY = "En Windows los servidores y respaldos viven en la carpeta de instalación"
+
+
 def storage_get():
+    # Discos, particiones y LVM son de Linux
+    if core.WINDOWS:
+        raise FileError(WINDOWS_ONLY)
+
     return status.storage_status()
 
 
@@ -29,6 +36,9 @@ def storage_options_for(role):
 def storage_action(user, path, data):
     if not is_owner(user):
         raise FileError("Solo el dueño del sistema puede cambiar el almacenamiento", 403)
+
+    if core.WINDOWS:
+        raise FileError(WINDOWS_ONLY)
 
     try:
         if path == "/admin/storage/relocate" and data.get("kind") == "rebuild":

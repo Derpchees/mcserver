@@ -2,11 +2,11 @@
 # MCServer by Derpchees - Ajustes del servidor (server.properties)
 #
 
-import subprocess
 import os
 import re
 
 import mcpanel_core as core
+import runtime
 from bedrock import console as bedrock_console
 
 from .common import container_info, FileError, give_to_server, read_lines, S
@@ -217,17 +217,11 @@ def save_settings(changes):
                 continue
 
             if core.is_bedrock(S()):
-                if bedrock_console.send(S().container, " ".join(live[key](value)))[0]:
+                if bedrock_console.send(S(), " ".join(live[key](value)))[0]:
                     applied.append(key)
                 continue
 
-            result = subprocess.run(
-                ["docker", "exec", S().container, "rcon-cli"] + live[key](value),
-                capture_output=True,
-                text=True
-            )
-
-            if result.returncode == 0:
+            if runtime.rcon(S(), live[key](value))[0]:
                 applied.append(key)
 
     return {

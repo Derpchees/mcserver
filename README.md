@@ -2,7 +2,7 @@
 
 **English** · [Español](README.es.md)
 
-A self-hosted web panel to run **several Minecraft Java servers on one machine**, each in Docker, with user accounts. It comes with an installer that sets everything up on Debian or Ubuntu.
+A self-hosted web panel to run **several Minecraft servers (Java and Bedrock) on one machine**, with user accounts. It comes with installers for **Debian/Ubuntu** (each server in Docker) and **Windows** (no Docker, everything in one folder).
 
 Each person creates an account from the login page and, in the same step, their own server: they choose the type, version, RAM and CPU. Servers start when someone connects, shut down when nobody is playing, and back themselves up every day.
 
@@ -48,6 +48,7 @@ Each Minecraft server runs in the [`itzg/minecraft-server`](https://github.com/i
 - Debian 12+ or Ubuntu 22.04+ (64-bit), with `sudo`.
 - Enough RAM for the servers you plan to run at the same time: about 2–4 GB each for Vanilla or Paper, 6 GB or more each for modded servers. Stopped servers use no RAM.
 - Docker. The installer installs it if it is missing.
+- **Or Windows 10/11 (64-bit)**: nothing else; see [Install on Windows](#install-on-windows).
 
 ## Install
 
@@ -77,6 +78,24 @@ If the `ufw` firewall is active, it opens the panel port, 50 Java ports (TCP), a
 When it finishes, **open the panel address it prints and create the administrator account**.
 
 To install without questions, copy [`examples/answers.env`](examples/answers.env), fill it in and run `sudo ./install.sh --config my-answers.env`.
+
+### Install on Windows
+
+Open **PowerShell** and paste:
+
+```powershell
+irm https://raw.githubusercontent.com/Derpchees/mcserver/main/install.ps1 | iex
+```
+
+It asks for administrator rights, the install folder (`C:\MCServer` by default) and the panel port, and then:
+
+- puts everything in that folder: the panel, a portable Python, Java (downloaded per Minecraft version), the servers, backups and logs. Nothing is installed elsewhere and Docker is not used: each server runs as a normal program;
+- opens the panel and game ports in Windows Firewall;
+- starts with Windows (task "MCServer", even without signing in) and adds MCServer to the Start menu and the desktop.
+
+Open the panel and create the administrator account. Updates are one click in **Admin → Updates**, as on Linux; servers keep running while the panel updates. To uninstall, use **Uninstall MCServer** in the Start menu (worlds and backups are kept unless you ask to delete them).
+
+On Windows, the Admin tabs for storage (disks) and HTTPS are not available yet.
 
 ## After installing
 

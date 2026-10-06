@@ -39,7 +39,7 @@ def run(srv, uid, gid):
     os.replace(tmp, path)
 
     # Tambien en el servidor encendido, sin reiniciar
-    console.send(srv.container, "allowlist off")
+    console.send(srv, "allowlist off")
 
     os.makedirs(srv.state_dir, exist_ok=True)
     open(marker, "w").close()

@@ -2,16 +2,16 @@
 # MCServer by Derpchees - Estado del contenedor, actividad, consola y comandos
 #
 
-import subprocess
 import os
 import re
 import time
 import calendar
 
 import mcpanel_core as core
+import runtime
 from bedrock import console as bedrock_console
 
-from .common import autostop_info, command, container_info, read_lines, S
+from .common import autostop_info, container_info, read_lines, S
 from .motd import read_motd
 from .containers import has_pending
 
@@ -48,15 +48,13 @@ def player_events():
     if cached and time.time() - cached[0] < 10:
         return cached[1]
 
-    output = command(
-        "docker logs --timestamps --since 168h "
-        + S().container
-        + " 2>&1 | grep -E ' (joined|left) the game$|Player (connected|disconnected):'"
-    )
-
+    output = runtime.logs(S(), since=time.time() - 168 * 3600, timestamps=True)
     events = []
 
     for line in output.splitlines():
+        if "the game" not in line and "Player " not in line:
+            continue
+
         m = PLAYER_EVENT.match(line.strip())
         b = None if m else BEDROCK_PLAYER_EVENT.match(line.strip())
 
@@ -155,9 +153,9 @@ def server_data():
 
 def docker_action(name):
     commands = {
-        "start": ["docker", "start", S().container],
-        "stop": ["docker", "stop", S().container],
-        "restart": ["docker", "restart", S().container]
+        "start": runtime.start,
+        "stop": runtime.stop,
+        "restart": runtime.restart
     }
 
     messages = {
@@ -172,13 +170,9 @@ def docker_action(name):
             "message": "Acción no válida"
         }
 
-    result = subprocess.run(
-        commands[name],
-        capture_output=True,
-        text=True
-    )
+    ok, error = commands[name](S())
 
-    if result.returncode == 0:
+    if ok:
         return {
             "ok": True,
             "message": messages[name]
@@ -186,8 +180,8 @@ def docker_action(name):
 
     return {
         "ok": False,
-        "message": "Error ejecutando Docker",
-        "output": result.stderr.strip()
+        "message": "No se pudo completar la acción",
+        "output": error
     }
 
 
@@ -210,7 +204,7 @@ def send_command(command_text):
 
     if core.is_bedrock(S()):
         # La respuesta sale en el log: se espera un momento para leerla
-        ok, output = bedrock_console.send(S().container, command_text, wait=1.0)
+        ok, output = bedrock_console.send(S(), command_text, wait=1.0)
 
         return {
             "ok": ok,
@@ -218,29 +212,12 @@ def send_command(command_text):
             "output": output
         }
 
-    result = subprocess.run(
-        [
-            "docker",
-            "exec",
-            S().container,
-            "rcon-cli",
-            command_text
-        ],
-        capture_output=True,
-        text=True
-    )
-
-    if result.returncode == 0:
-        return {
-            "ok": True,
-            "message": "Comando enviado",
-            "output": result.stdout.strip()
-        }
+    ok, output = runtime.rcon(S(), [command_text])
 
     return {
-        "ok": False,
-        "message": "No se pudo ejecutar el comando",
-        "output": result.stderr.strip()
+        "ok": ok,
+        "message": "Comando enviado" if ok else "No se pudo ejecutar el comando",
+        "output": output
     }
 
 
@@ -257,22 +234,8 @@ def console():
     if running != "true":
         return "El servidor está apagado."
 
-    result = subprocess.run(
-        [
-            "docker",
-            "logs",
-            "--tail",
-            "2000",
-            S().container
-        ],
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        text=True,
-        errors="replace"
-    )
-
     lines = [
-        x for x in result.stdout.splitlines()
+        x for x in runtime.logs(S(), tail=2000).splitlines()
         if not RCON_NOISE.search(x)
     ]
 

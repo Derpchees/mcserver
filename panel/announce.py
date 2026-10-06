@@ -14,13 +14,13 @@
 
 import json
 import os
-import subprocess
 import sys
 import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import mcpanel_core as core  # noqa: E402
+import runtime  # noqa: E402
 from bedrock import console as bedrock_console  # noqa: E402
 
 LABEL = {"es": "Respaldo", "en": "Backup"}
@@ -55,17 +55,10 @@ def announce(srv, key):
     payload = json.dumps(["", {"text": "[%s] " % label, "color": "gold"}, {"text": text}], ensure_ascii=False)
 
     if core.is_bedrock(srv):
-        if not bedrock_console.tellraw(srv.container, "@a", text, label, "gold"):
+        if not bedrock_console.tellraw(srv, "@a", text, label, "gold"):
             return False
-    else:
-        try:
-            result = subprocess.run(["docker", "exec", srv.container, "rcon-cli", "tellraw", "@a", payload],
-                                    capture_output=True, text=True, timeout=20)
-        except (OSError, subprocess.TimeoutExpired):
-            return False
-
-        if result.returncode != 0:
-            return False
+    elif not runtime.rcon(srv, ["tellraw", "@a", payload])[0]:
+        return False
 
     # tellraw no queda en los logs de Minecraft: se guarda para el chat del panel
     try:
