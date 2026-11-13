@@ -1,5 +1,17 @@
 [
   {
+    "version": "2.9.1",
+    "date": "2026-11-13",
+    "en": [
+      "Windows: uninstalling from the panel or the Start menu works again (it used to stop itself along with the panel and leave everything in place).",
+      "The Windows uninstaller now keeps a log and says if anything could not be deleted."
+    ],
+    "es": [
+      "Windows: desinstalar desde el panel o desde el menú Inicio vuelve a funcionar (antes se detenía junto con el panel y dejaba todo en su lugar).",
+      "El desinstalador de Windows ahora guarda un registro y avisa si algo no se pudo borrar."
+    ]
+  },
+  {
     "version": "2.9.0",
     "date": "2026-10-06",
     "en": [

@@ -69,30 +69,77 @@ if (-not $Yes) {
     $PurgeBackups = (Read-Host (T "Borrar tambien los respaldos? (s/N)" "Also delete the backups? (y/N)")) -match '^[sSyY]'
 }
 
+# Registro en la carpeta temporal de Windows (la de MCServer se borra)
+$logFile = Join-Path ([IO.Path]::GetTempPath()) "mcserver-uninstall.log"
+try { Start-Transcript -Path $logFile -Force | Out-Null } catch {}
+
+# Desde el panel: deja que conteste la peticion antes de detenerlo
+if ($Yes) { Start-Sleep -Seconds 3 }
+
 Write-Host (T "Deteniendo MCServer y sus servidores..." "Stopping MCServer and its servers...")
-Stop-ScheduledTask -TaskName "MCServer" -ErrorAction SilentlyContinue
+
+# Primero se quita la tarea para que no vuelva a encender el panel al
+# matarlo (tiene reinicio automatico); luego se detiene lo que corre
 Unregister-ScheduledTask -TaskName "MCServer" -Confirm:$false -ErrorAction SilentlyContinue
+& schtasks.exe /End /TN "MCServer" 2>$null | Out-Null
+& schtasks.exe /Delete /TN "MCServer" /F 2>$null | Out-Null
 
-# Todo lo que corre desde la carpeta (panel, vigilantes, Java, Bedrock),
-# menos esta misma ventana
-Get-CimInstance Win32_Process | Where-Object {
-    $_.ProcessId -ne $PID -and (
-        ($_.ExecutablePath -and $_.ExecutablePath.StartsWith($Dir, [StringComparison]::OrdinalIgnoreCase)) -or
-        ($_.CommandLine -and $_.CommandLine -like "*$Dir*" -and $_.Name -notlike "powershell*"))
-} | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+# Esta ventana y sus padres no se tocan (taskkill /T mataria tambien a esta)
+$keep = @{}
+$cursor = $PID
+while ($cursor -and -not $keep.ContainsKey([int]$cursor)) {
+    $keep[[int]$cursor] = $true
+    $cursor = (Get-CimInstance Win32_Process -Filter "ProcessId=$cursor" -ErrorAction SilentlyContinue).ParentProcessId
+}
 
-Start-Sleep -Seconds 2
+function Stop-McProcesses {
+    # Todo lo que corre desde la carpeta (panel, vigilantes, Java, Bedrock),
+    # menos esta misma ventana
+    $found = @(Get-CimInstance Win32_Process | Where-Object {
+        -not $keep.ContainsKey([int]$_.ProcessId) -and (
+            ($_.ExecutablePath -and $_.ExecutablePath.StartsWith($Dir, [StringComparison]::OrdinalIgnoreCase)) -or
+            ($_.CommandLine -and $_.CommandLine -like "*$Dir*" -and $_.Name -notlike "powershell*"))
+    })
+
+    foreach ($proc in $found) {
+        Write-Host ("  - {0} ({1})" -f $proc.Name, $proc.ProcessId)
+        & taskkill.exe /F /T /PID $proc.ProcessId 2>$null | Out-Null
+    }
+
+    return $found.Count
+}
+
+# Varias pasadas: un vigilante puede alcanzar a lanzar algo antes de morir
+for ($i = 0; $i -lt 5; $i++) {
+    if ((Stop-McProcesses) -eq 0) { break }
+    Start-Sleep -Seconds 2
+}
+
+function Remove-Retry([string]$path) {
+    # Algun archivo puede seguir en uso unos segundos
+    for ($i = 0; $i -lt 10 -and (Test-Path -LiteralPath $path); $i++) {
+        Remove-Item -LiteralPath $path -Recurse -Force -ErrorAction SilentlyContinue
+        if (Test-Path -LiteralPath $path) { Start-Sleep -Seconds 1 }
+    }
+
+    if (Test-Path -LiteralPath $path) {
+        Write-Host ((T "No se pudo borrar: " "Could not delete: ") + $path) -ForegroundColor Red
+    }
+}
 
 Get-NetFirewallRule -Group "MCServer" -ErrorAction SilentlyContinue | Remove-NetFirewallRule
 Remove-Item (Join-Path $env:ProgramData "Microsoft\Windows\Start Menu\Programs\MCServer") -Recurse -Force -ErrorAction SilentlyContinue
 Remove-Item (Join-Path ([Environment]::GetFolderPath("CommonDesktopDirectory")) "MCServer.url") -Force -ErrorAction SilentlyContinue
 
 foreach ($name in @("app", "python", "java", "run", "logs", "state", "config.env")) {
-    Remove-Item (Join-Path $Dir $name) -Recurse -Force -ErrorAction SilentlyContinue
+    Remove-Retry (Join-Path $Dir $name)
 }
 
-if ($PurgeData) { Remove-Item $dataDir -Recurse -Force -ErrorAction SilentlyContinue }
-if ($PurgeBackups) { Remove-Item $backupDir -Recurse -Force -ErrorAction SilentlyContinue }
+if ($PurgeData) { Remove-Retry $dataDir }
+if ($PurgeBackups) { Remove-Retry $backupDir }
+
+# La tarea de una sola vez con la que el panel lanzo esto
+Unregister-ScheduledTask -TaskName "MCServer Uninstall" -Confirm:$false -ErrorAction SilentlyContinue
 
 # La carpeta se quita si quedo vacia
 if ((Test-Path $Dir) -and -not (Get-ChildItem $Dir -Force)) {
@@ -105,3 +152,9 @@ Write-Host (T "MCServer se desinstalo." "MCServer was uninstalled.") -Foreground
 if (Test-Path $Dir) {
     Write-Host (T "Lo que se conservo sigue en $Dir" "What was kept is still in $Dir")
 }
+
+Write-Host ((T "Registro: " "Log: ") + $logFile)
+try { Stop-Transcript | Out-Null } catch {}
+
+# Desde el acceso directo la ventana no se cierra sin que se lea
+if (-not $Yes) { Read-Host (T "Enter para cerrar" "Press Enter to close") | Out-Null }

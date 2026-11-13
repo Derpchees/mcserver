@@ -181,7 +181,8 @@ def start_uninstall(data):
 
 
 def start_uninstall_windows(data):
-    # uninstall.ps1 corre aparte: detiene este panel y borra la carpeta
+    # uninstall.ps1 corre como tarea propia: si naciera del panel quedaria en
+    # el job de la tarea "MCServer" y moriria al detenerla
     from native import procs
 
     script = os.path.join(INSTALL_DIR, "uninstall.ps1")
@@ -198,7 +199,7 @@ def start_uninstall_windows(data):
         args.append("-PurgeBackups")
 
     try:
-        procs.spawn_detached(args)
+        procs.spawn_task("MCServer Uninstall", args)
     except RuntimeError as error:
         raise FileError("No se pudo iniciar la desinstalación: %s" % error, 500)
 

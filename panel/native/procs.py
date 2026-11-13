@@ -76,6 +76,32 @@ def spawn_wmi(args, cwd=None):
     return int(value) if value.isdigit() else None
 
 
+def spawn_task(name, args):
+    # Corre args como tarea de una sola vez del Programador (SYSTEM). Sirve
+    # para lo que tiene que detener la tarea "MCServer" sin morir con ella
+    args = [str(a) for a in args]
+    action = "New-ScheduledTaskAction -Execute '%s' -Argument '%s'" % (
+        args[0].replace("'", "''"), subprocess.list2cmdline(args[1:]).replace("'", "''"))
+    script = (
+        "$ErrorActionPreference = 'Stop'; "
+        "$a = %s; "
+        "$p = New-ScheduledTaskPrincipal -UserId 'SYSTEM' -LogonType ServiceAccount -RunLevel Highest; "
+        "$s = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries "
+        "-ExecutionTimeLimit (New-TimeSpan -Hours 1); "
+        "Register-ScheduledTask -TaskName '%s' -Action $a -Principal $p -Settings $s -Force | Out-Null; "
+        "Start-ScheduledTask -TaskName '%s'"
+        % (action, name.replace("'", "''"), name.replace("'", "''")))
+
+    try:
+        result = run_quiet(["powershell", "-NoProfile", "-NonInteractive", "-Command", script],
+                           capture_output=True, text=True, timeout=60)
+    except (OSError, subprocess.TimeoutExpired) as error:
+        raise RuntimeError(str(error))
+
+    if result.returncode != 0:
+        raise RuntimeError((result.stderr or result.stdout).strip()[:300] or "Register-ScheduledTask")
+
+
 def run_quiet(args, **kwargs):
     # Como subprocess.run pero sin abrir ventanas de consola
     kwargs.setdefault("creationflags", CREATE_NO_WINDOW)
